@@ -1,0 +1,15 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: Eclipse OCT
+Bundle-SymbolicName: org.eclipse.oct;singleton:=true
+Bundle-Version: 2.28.0.qualifier
+Bundle-ClassPath: .
+Bundle-Vendor: Eclipse OCT
+Bundle-Localization: plugin
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Require-Bundle: org.eclipse.core.runtime,
+ org.eclipse.equinox.common
+Bundle-ActivationPolicy: lazy
+Bundle-Activator: org.eclipse.oct.internal.Activator
+Automatic-Module-Name: org.eclipse.oct
+Eclipse-SourceReferences: eclipseSourceReferences

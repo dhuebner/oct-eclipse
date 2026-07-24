@@ -12,25 +12,23 @@ import org.eclipse.ui.IWorkbenchPreferencePage;
 import org.eclipse.ui.preferences.ScopedPreferenceStore;
 
 /**
- * Preference page for Open Collaboration Tools. Port of OCTSettings configurable.
+ * Preference page for Open Collaboration Tools. Port of OCTSettings
+ * configurable.
  */
 public class OCTPreferencePage extends FieldEditorPreferencePage implements IWorkbenchPreferencePage {
 
-    public OCTPreferencePage() {
-        super(GRID);
-        setPreferenceStore(new ScopedPreferenceStore(InstanceScope.INSTANCE, "org.eclipse.oct"));
-        setDescription("Open Collaboration Tools Settings");
-    }
+	public OCTPreferencePage() {
+		super(GRID);
+		setPreferenceStore(new ScopedPreferenceStore(InstanceScope.INSTANCE, "org.eclipse.oct"));
+		setDescription("Open Collaboration Tools Settings");
+	}
 
-    @Override
-    protected void createFieldEditors() {
-        addField(new StringFieldEditor(
-            "defaultServerURL",
-            "Default server address:",
-            getFieldEditorParent()
-        ));
-    }
+	@Override
+	protected void createFieldEditors() {
+		addField(new StringFieldEditor("defaultServerURL", "Default server address:", getFieldEditorParent()));
+	}
 
-    @Override
-    public void init(IWorkbench workbench) {}
+	@Override
+	public void init(IWorkbench workbench) {
+	}
 }

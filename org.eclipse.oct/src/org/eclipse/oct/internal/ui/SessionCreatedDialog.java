@@ -41,8 +41,8 @@ public class SessionCreatedDialog extends TitleAreaDialog {
 	@Override
 	public void create() {
 		super.create();
-		setTitle("Session created");
-		setMessage("Created session " + roomId + ". Invitation code was automatically written to clipboard.");
+		setTitle("Session running");
+		setMessage("Session ID: " + roomId + ".\nInvitation code was automatically written to clipboard.");
 
 		// Auto-copy room ID to clipboard on open
 		copyToClipboard(roomId);

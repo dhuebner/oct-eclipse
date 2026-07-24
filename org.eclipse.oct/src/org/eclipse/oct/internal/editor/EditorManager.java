@@ -4,6 +4,7 @@
  */
 package org.eclipse.oct.internal.editor;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -13,6 +14,7 @@ import java.util.logging.Logger;
 
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IProject;
+import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.DocumentRewriteSession;
 import org.eclipse.jface.text.DocumentRewriteSessionType;
@@ -61,6 +63,13 @@ public class EditorManager implements IPartListener2 {
 
 	public String followingPeerId = null;
 
+	/**
+	 * When {@code true}, a guest opening/selecting a file steals the host's editor
+	 * focus (auto-opens and activates it). Off by default since this is disruptive
+	 * to the host's own workflow.
+	 */
+	private volatile boolean followGuestSelection = false;
+
 	public EditorManager(OCTService remoteService, IProject project) {
 		this.remoteService = remoteService;
 		this.project = project;
@@ -87,7 +96,12 @@ public class EditorManager implements IPartListener2 {
 		if (disposed.get()) {
 			return;
 		}
-		IEditorPart editor = ref.getPage().getActiveEditor();
+		if (!(ref instanceof IEditorReference editorRef)) {
+			return;
+		}
+		// Use the opened editor, not the active one — otherwise opening a second
+		// file while another stays active seeds the wrong (or empty) Yjs doc.
+		IEditorPart editor = editorRef.getEditor(false);
 		if (!(editor instanceof ITextEditor textEditor)) {
 			return;
 		}
@@ -96,10 +110,34 @@ public class EditorManager implements IPartListener2 {
 			return;
 		}
 		String path = pathFor(file);
-		registerEditor(path, textEditor);
+		boolean firstRegistration = registerEditor(path, textEditor);
+		if (!firstRegistration) {
+			// Already tracked — do not resend. openDocument always does a full
+			// delete+insert on the Yjs side (no diffing), so re-sending unchanged
+			// content on every partOpened marks guest editors dirty for no reason.
+			return;
+		}
 
-		// Notify host that this editor was opened
-		remoteService.openDocument("text", path, "");
+		IDocument document = textEditor.getDocumentProvider().getDocument(textEditor.getEditorInput());
+		String text = document != null ? document.get() : "";
+		if (text.isEmpty()) {
+			// Defend against the document provider not having finished loading yet
+			// (e.g. when the part was just force-opened for a guest) — fall back to
+			// reading the resource directly rather than seeding Yjs with a blank doc.
+			try {
+				if (file.exists()) {
+					String diskText = readFileContent(file);
+					if (!diskText.isEmpty()) {
+						text = diskText;
+					}
+				}
+			} catch (Exception e) {
+				LOG.warning("Failed to read fallback content for: " + path + " - " + e.getMessage());
+			}
+		}
+		// Seed Yjs with real content. Empty string would make
+		// guests re-read a blank buffer when switching tabs or on FileChange Update.
+		remoteService.openDocument("text", path, text);
 	}
 
 	@Override
@@ -144,14 +182,19 @@ public class EditorManager implements IPartListener2 {
 
 	// ---- Editor registration ----
 
-	private void registerEditor(String path, ITextEditor editor) {
+	/**
+	 * Registers listeners/annotations for {@code editor} if not already tracked.
+	 * Returns {@code true} only if this call performed the (one-time) registration,
+	 * so callers can gate actions that must happen exactly once per document.
+	 */
+	private boolean registerEditor(String path, ITextEditor editor) {
 		if (editorStates.containsKey(path)) {
-			return;
+			return false;
 		}
 
 		IDocument document = editor.getDocumentProvider().getDocument(editor.getEditorInput());
 		if (document == null) {
-			return;
+			return false;
 		}
 
 		AtomicBoolean sendUpdates = new AtomicBoolean(true);
@@ -185,6 +228,7 @@ public class EditorManager implements IPartListener2 {
 		editorStates.put(path, new EditorState(editor, document, peerModel, docListener, selListener, sendUpdates,
 				cursorStrategy, selectionStrategy));
 		LOG.fine("Registered editor for: " + path);
+		return true;
 	}
 
 	private void unregisterEditor(String path) {
@@ -323,21 +367,68 @@ public class EditorManager implements IPartListener2 {
 	}
 
 	/**
-	 * Called on the host when a guest opens an editor.
+	 * Called on the host when a guest opens an editor. Regardless of the "follow
+	 * guest selection" setting, the Yjs doc must be seeded with real content or the
+	 * guest ends up looking at a blank buffer. Only actually stealing the host's
+	 * editor focus (opening/activating the part) is gated behind
+	 * {@link #followGuestSelection}.
 	 */
 	public void guestOpenedEditor(String documentPath) {
 		Display.getDefault().asyncExec(() -> {
-			try {
-				IWorkbenchPage page = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
-				String relPath = documentPath.replaceFirst("^[^/]+/", "");
-				IFile file = project.getFile(relPath);
-				if (file.exists()) {
-					IDE.openEditor(page, file, true);
+			String relPath = documentPath.replaceFirst("^[^/]+/", "");
+			IFile file = project.getFile(relPath);
+			if (!file.exists()) {
+				return;
+			}
+
+			if (editorStates.containsKey(documentPath)) {
+				// Already open/registered on the host — content is already
+				// live-synced, so only bring it to front if opted in.
+				if (followGuestSelection) {
+					activateEditor(file);
 				}
-			} catch (Exception e) {
-				LOG.warning("Failed to open editor for guest: " + e.getMessage());
+				return;
+			}
+
+			if (followGuestSelection) {
+				// Opens the part, which triggers partOpened() -> first-time
+				// registration -> real content sent exactly once.
+				activateEditor(file);
+			} else {
+				// Don't steal focus. Read the current on-disk content directly
+				// (avoids any race with an editor's document still loading)
+				// and seed Yjs with it so the guest doesn't see an empty file.
+				try {
+					String text = readFileContent(file);
+					remoteService.openDocument("text", documentPath, text);
+				} catch (Exception e) {
+					LOG.warning("Failed to read file for guest: " + e.getMessage());
+				}
 			}
 		});
+	}
+
+	private void activateEditor(IFile file) {
+		try {
+			IWorkbenchPage page = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
+			IDE.openEditor(page, file, true);
+		} catch (Exception e) {
+			LOG.warning("Failed to open editor for guest: " + e.getMessage());
+		}
+	}
+
+	private static String readFileContent(IFile file) throws Exception {
+		try (java.io.InputStream is = file.getContents()) {
+			return new String(is.readAllBytes(), StandardCharsets.UTF_8).replace("\r\n", "\n");
+		}
+	}
+
+	public boolean isFollowGuestSelection() {
+		return followGuestSelection;
+	}
+
+	public void setFollowGuestSelection(boolean followGuestSelection) {
+		this.followGuestSelection = followGuestSelection;
 	}
 
 	private void followTo(String path, int offset) {
@@ -369,25 +460,86 @@ public class EditorManager implements IPartListener2 {
 		return this.followingPeerId;
 	}
 
+	/**
+	 * Save an open editor for {@code path} so its dirty state is cleared. Used when
+	 * a peer persists the file (guest→host or host→guest {@code writeFile}).
+	 * Returns {@code true} if handled by an open editor.
+	 */
+	public boolean saveIfOpen(String path, byte[] content) {
+		if (findEditorState(path) == null) {
+			return false;
+		}
+		AtomicBoolean handled = new AtomicBoolean(false);
+		Display.getDefault().syncExec(() -> {
+			EditorState state = findEditorState(path);
+			if (state == null) {
+				return;
+			}
+			// The document is normally already up to date via Yjs sync; only
+			// replace it if the incoming content actually differs, suppressing
+			// echo so we don't broadcast the change back to guests.
+			if (content != null) {
+				String incoming = new String(content, StandardCharsets.UTF_8).replace("\r\n", "\n");
+				if (!incoming.equals(state.document.get())) {
+					state.sendUpdates.set(false);
+					try {
+						state.document.set(incoming);
+					} finally {
+						state.sendUpdates.set(true);
+					}
+				}
+			}
+			try {
+				state.editor.doSave(new NullProgressMonitor());
+				handled.set(true);
+			} catch (Exception e) {
+				LOG.warning("Failed to save editor for: " + path + " - " + e.getMessage());
+			}
+		});
+		return handled.get();
+	}
+
 	private String pathFor(IFile file) {
 		return file.getProject().getName() + "/" + file.getProjectRelativePath().toString();
+	}
+
+	/**
+	 * Resolve editor state by exact OCT path, or by suffix so a guest temp project
+	 * ({@code name-oct-…/root/file}) matches a host path ({@code root/file}).
+	 */
+	private EditorState findEditorState(String path) {
+		if (path == null) {
+			return null;
+		}
+		EditorState exact = editorStates.get(path);
+		if (exact != null) {
+			return exact;
+		}
+		for (Map.Entry<String, EditorState> entry : editorStates.entrySet()) {
+			String key = entry.getKey();
+			if (key.endsWith("/" + path) || path.endsWith("/" + key)) {
+				return entry.getValue();
+			}
+		}
+		return null;
 	}
 
 	public void dispose() {
 		disposed.set(true);
 		Display.getDefault().asyncExec(() -> {
-			if (!PlatformUI.isWorkbenchRunning()) {
-				return;
-			}
-			try {
-				IWorkbenchPage page = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
-				if (page != null) {
-					page.removePartListener(this);
+			if (PlatformUI.isWorkbenchRunning()) {
+				try {
+					IWorkbenchPage page = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
+					if (page != null) {
+						page.removePartListener(this);
+					}
+				} catch (Exception ignored) {
 				}
-			} catch (Exception ignored) {
 			}
+			// Unregister editors on the UI thread: removing selection listeners,
+			// annotation models and drawing strategies touches SWT/viewer APIs.
+			new ArrayList<>(editorStates.keySet()).forEach(this::unregisterEditor);
 		});
-		new ArrayList<>(editorStates.keySet()).forEach(this::unregisterEditor);
 	}
 
 	// ---- Inner state holder ----

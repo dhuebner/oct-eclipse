@@ -12,7 +12,10 @@ import java.util.logging.Logger;
 import org.eclipse.core.resources.IFolder;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
-import org.eclipse.core.runtime.NullProgressMonitor;
+import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.Status;
+import org.eclipse.core.runtime.jobs.Job;
 import org.eclipse.oct.internal.protocol.ClientTextSelection;
 import org.eclipse.oct.internal.protocol.FileChange;
 import org.eclipse.oct.internal.protocol.FileChangeEvent;
@@ -132,21 +135,34 @@ public class CollaborationInstance {
 			return;
 		}
 
-		// FIXME use Jobs monitor
-		NullProgressMonitor monitor = new NullProgressMonitor();
-		for (String root : sessionData.workspace.folders) {
-			try {
-				// Create a linked folder pointing at oct://<sessionId>/<root>
-				URI octUri = new URI("oct", sessionId, "/" + root, null, null);
-				IFolder folder = project.getFolder(root);
-				if (!folder.exists()) {
-					folder.createLink(octUri, IResource.REPLACE | IResource.ALLOW_MISSING_LOCAL, monitor);
+		// Run off the JSON-RPC reader thread: creating the links triggers
+		// synchronous readDir/stat round trips to the host over the same service
+		// process connection, which would deadlock the reader thread.
+		Job job = new Job("Initializing OCT shared folders") {
+			@Override
+			protected IStatus run(IProgressMonitor monitor) {
+				for (String root : sessionData.workspace.folders) {
+					try {
+						// Create a linked folder pointing at oct://<sessionId>/<root>
+						URI octUri = new URI("oct", sessionId, "/" + root, null, null);
+						IFolder folder = project.getFolder(root);
+						if (!folder.exists()) {
+							folder.createLink(octUri, IResource.REPLACE | IResource.ALLOW_MISSING_LOCAL, monitor);
+						}
+						// Populate the linked folder's children from the host. Without an
+						// initial refresh the workspace model stays empty and nothing is
+						// shown in the Project Explorer until a file change arrives.
+						folder.refreshLocal(IResource.DEPTH_INFINITE, monitor);
+					} catch (Exception e) {
+						LOG.warning("Failed to create linked folder for root '" + root + "': " + e.getMessage());
+					}
 				}
-			} catch (Exception e) {
-				LOG.warning("Failed to create linked folder for root '" + root + "': " + e.getMessage());
+				LOG.info("Initialized " + sessionData.workspace.folders.length + " shared folder(s) for session: "
+						+ sessionId);
+				return Status.OK_STATUS;
 			}
-		}
-		LOG.info("Initialized " + sessionData.workspace.folders.length + " shared folder(s) for session: " + sessionId);
+		};
+		job.schedule();
 	}
 
 	// EditorManager reference set after construction to avoid circular deps
@@ -162,5 +178,13 @@ public class CollaborationInstance {
 
 	public void dispose() {
 		LOG.info("Disposing collaboration instance for project: " + project.getName());
+		if (editorManager != null) {
+			// Tear down the workbench part listener and all per-editor document/
+			// selection listeners. Otherwise they outlive the session and keep
+			// sending to the (now destroyed) service process, causing
+			// "Stream closed" errors.
+			editorManager.dispose();
+			editorManager = null;
+		}
 	}
 }

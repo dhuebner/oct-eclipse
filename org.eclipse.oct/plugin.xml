@@ -24,6 +24,7 @@
       <command id="org.eclipse.oct.toggleFollow" name="Toggle Follow Peer" categoryId="org.eclipse.oct.category" description="Start or stop following a peer's cursor">
          <commandParameter id="org.eclipse.oct.toggleFollow.peerId" name="Peer ID" optional="true"/>
       </command>
+      <command id="org.eclipse.oct.showSessionInfo" name="Show Session Info" categoryId="org.eclipse.oct.category" description="Show current session invitation code and copy it to the clipboard"/>
    </extension>
 
    <!-- ===== Handlers ===== -->
@@ -33,17 +34,19 @@
       <handler commandId="org.eclipse.oct.closeSession" class="org.eclipse.oct.internal.ui.commands.CloseSessionHandler"/>
       <handler commandId="org.eclipse.oct.logout" class="org.eclipse.oct.internal.ui.commands.LogoutHandler"/>
       <handler commandId="org.eclipse.oct.toggleFollow" class="org.eclipse.oct.internal.ui.commands.ToggleFollowHandler"/>
+      <handler commandId="org.eclipse.oct.showSessionInfo" class="org.eclipse.oct.internal.ui.commands.ShowSessionInfoHandler"/>
    </extension>
 
    <!-- ===== Menu / Toolbar contributions ===== -->
    <extension point="org.eclipse.ui.menus">
-      <!-- OCT Session View toolbar -->
-      <menuContribution locationURI="toolbar:org.eclipse.oct.sessionView">
-         <command commandId="org.eclipse.oct.hostSession" icon="icons/share.png" tooltip="Host Session" style="push"/>
-         <command commandId="org.eclipse.oct.joinSession" icon="icons/collab.png" tooltip="Join Session" style="push"/>
-         <separator name="org.eclipse.oct.sessionViewSep1"/>
-         <command commandId="org.eclipse.oct.closeSession" icon="platform:/plugin/org.eclipse.ui/icons/full/elcl16/stop.png" tooltip="Close Session" style="push"/>
-      </menuContribution>
+       <!-- OCT Session View toolbar -->
+       <menuContribution locationURI="toolbar:org.eclipse.oct.sessionView">
+          <command commandId="org.eclipse.oct.hostSession" icon="icons/share.png" tooltip="Host Session" style="push"/>
+          <command commandId="org.eclipse.oct.joinSession" icon="icons/collab.png" tooltip="Join Session" style="push"/>
+          <separator name="org.eclipse.oct.sessionViewSep1"/>
+           <command commandId="org.eclipse.oct.showSessionInfo" icon="platform:/plugin/org.eclipse.ui/icons/full/obj16/info_tsk.png" tooltip="Show Session Info / Copy Invitation" style="push"/>
+          <command commandId="org.eclipse.oct.closeSession" icon="platform:/plugin/org.eclipse.ui/icons/full/elcl16/stop.png" tooltip="Close Session" style="push"/>
+       </menuContribution>
 
       <!-- Status bar contribution -->
       <menuContribution locationURI="toolbar:org.eclipse.ui.trim.status?before=org.eclipse.ui.StatusLine">
@@ -66,6 +69,12 @@
                icon="icons/collab.png"
                label="Join Session..."
                style="push"/>
+         <command
+               commandId="org.eclipse.oct.showSessionInfo"
+               icon="platform:/plugin/org.eclipse.ui/icons/full/obj16/info_tsk.png"
+               style="push"
+               tooltip="Show Session Info / Copy Invitation">
+         </command>
          <separator name="org.eclipse.oct.statusBarSep1"/>
          <command
                commandId="org.eclipse.oct.closeSession"

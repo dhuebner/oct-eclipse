@@ -101,10 +101,11 @@ public class SessionService {
 					}
 				} catch (Exception e) {
 					LOG.log(Level.SEVERE, "Error creating room", e);
+					final String errMsg = (e.getMessage() == null) ? "" : ("Error: " + e.getMessage());
 					Display.getDefault()
 							.asyncExec(() -> MessageDialog.openError(
 									PlatformUI.getWorkbench().getActiveWorkbenchWindow().getShell(), "OCT Error",
-									"Failed to create room: " + e.getMessage()));
+									"Failed to create room. " + errMsg));
 				}
 				return Status.OK_STATUS;
 			}
@@ -123,7 +124,8 @@ public class SessionService {
 				java.net.URI uri = new java.net.URI(roomToken);
 				String fragment = uri.getFragment();
 				if (fragment != null && !fragment.isBlank()) {
-					serverUrl.set(new java.net.URI(uri.getScheme(), uri.getAuthority(), "", null, null).toString());
+					String parsed = new java.net.URI(uri.getScheme(), uri.getAuthority(), "", null, null).toString();
+					serverUrl.set(OCTSettings.normalizeServerUrl(parsed));
 					roomToken = fragment;
 				}
 			} catch (java.net.URISyntaxException ignored) {

@@ -108,10 +108,13 @@ public class OctFileStore extends FileStore {
 			info.setDirectory(stat.type == FileType.Directory);
 			info.setLength(stat.size);
 			info.setLastModified(stat.mtime);
+			cachedInfo = info; // only cache positive results; a failed stat is transient
 		} else {
 			info.setExists(false);
+			// Do NOT cache: stat may have failed due to a transient RPC error or
+			// because the session was not yet fully initialised. Without caching,
+			// the next fetchInfo() / refreshLocal() will retry the RPC call.
 		}
-		cachedInfo = info;
 		return info;
 	}
 

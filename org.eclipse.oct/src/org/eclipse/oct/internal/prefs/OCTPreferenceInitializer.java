@@ -14,9 +14,9 @@ import org.eclipse.ui.preferences.ScopedPreferenceStore;
  */
 public class OCTPreferenceInitializer extends AbstractPreferenceInitializer {
 
-    @Override
-    public void initializeDefaultPreferences() {
-        IPreferenceStore store = new ScopedPreferenceStore(InstanceScope.INSTANCE, "org.eclipse.oct");
-        store.setDefault("defaultServerURL", OCTSettings.DEFAULT_SERVER_URL);
-    }
+	@Override
+	public void initializeDefaultPreferences() {
+		IPreferenceStore store = new ScopedPreferenceStore(InstanceScope.INSTANCE, "org.eclipse.oct");
+		store.setDefault("defaultServerURL", OCTSettings.DEFAULT_SERVER_URL);
+	}
 }

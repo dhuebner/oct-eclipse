@@ -129,12 +129,25 @@ public class SessionView extends ViewPart {
 	private void renderSession(CollaborationInstance instance) {
 		String role = instance.isHost ? "Hosting" : "Collaborating";
 		Label header = new Label(root, SWT.BOLD);
+		GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(header);
 		header.setText("OCT Session — " + role + ": " + instance.sessionData.workspace.name);
 		GridDataFactory.fillDefaults().grab(true, false).applyTo(header);
 
+		if (instance.isHost && instance.getEditorManager() != null) {
+			Button followGuestBtn = new Button(root, SWT.CHECK);
+			followGuestBtn.setText("Follow guest selection");
+			followGuestBtn.setToolTipText(
+					"When enabled, opening/selecting a file as a guest also opens and activates it in your editor. "
+							+ "Disabled by default so guest navigation doesn't steal your focus.");
+			followGuestBtn.setSelection(instance.getEditorManager().isFollowGuestSelection());
+			GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(followGuestBtn);
+			followGuestBtn.addListener(SWT.Selection,
+					e -> instance.getEditorManager().setFollowGuestSelection(followGuestBtn.getSelection()));
+		}
+
 		peerList = new Composite(root, SWT.NONE);
+		GridDataFactory.fillDefaults().grab(true, false).span(2, 1).applyTo(peerList);
 		GridLayoutFactory.fillDefaults().numColumns(3).applyTo(peerList);
-		GridDataFactory.fillDefaults().grab(true, true).applyTo(peerList);
 
 		// Identity (self)
 		if (instance.identity != null) {

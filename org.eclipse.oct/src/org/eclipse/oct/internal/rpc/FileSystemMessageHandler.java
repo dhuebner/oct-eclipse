@@ -11,6 +11,7 @@ import org.eclipse.lsp4j.jsonrpc.services.JsonNotification;
 import org.eclipse.lsp4j.jsonrpc.services.JsonRequest;
 import org.eclipse.lsp4j.jsonrpc.services.JsonSegment;
 import org.eclipse.oct.internal.CollaborationInstance;
+import org.eclipse.oct.internal.editor.EditorManager;
 import org.eclipse.oct.internal.fs.WorkspaceFileSystemService;
 import org.eclipse.oct.internal.protocol.FileChangeEvent;
 import org.eclipse.oct.internal.protocol.FileContent;
@@ -83,7 +84,16 @@ public class FileSystemMessageHandler extends BaseMessageHandler {
 		if (wfs == null) {
 			return CompletableFuture.completedFuture(null);
 		}
-		return wfs.writeFile(path, content);
+		// Guest save (VS Code FileSystemProvider.writeFile → host). If the file
+		// is open in a dirty editor, save through the editor so dirty state is
+		// cleared instead of writing underneath it.
+		EditorManager em = collaborationInstance != null ? collaborationInstance.getEditorManager() : null;
+		if (em == null) {
+			return wfs.writeFile(path, content);
+		}
+		byte[] bytes = content != null ? content.content : null;
+		return CompletableFuture.supplyAsync(() -> em.saveIfOpen(path, bytes)).thenCompose(
+				handled -> handled ? CompletableFuture.<Void>completedFuture(null) : wfs.writeFile(path, content));
 	}
 
 	@JsonRequest

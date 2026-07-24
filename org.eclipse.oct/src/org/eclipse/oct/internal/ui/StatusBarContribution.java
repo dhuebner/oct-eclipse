@@ -4,7 +4,6 @@
  */
 package org.eclipse.oct.internal.ui;
 
-import org.eclipse.jface.action.IContributionManager;
 import org.eclipse.jface.action.MenuManager;
 import org.eclipse.oct.internal.Activator;
 import org.eclipse.oct.internal.CollaborationInstance;
@@ -98,12 +97,6 @@ public class StatusBarContribution extends WorkbenchWindowControlContribution {
 		return container;
 	}
 
-	@Override
-	protected int computeWidth(Control parent) {
-		// return createControl(parent).computeSize(SWT.DEFAULT, SWT.DEFAULT).x + 10;
-		return 320;
-	}
-
 	private void refresh() {
 		if (label == null || label.isDisposed()) {
 			return;
@@ -156,11 +149,6 @@ public class StatusBarContribution extends WorkbenchWindowControlContribution {
 				label.setText(text);
 				label.setToolTipText(tooltip);
 				container.layout(true, true);
-				// Ask the trim manager to re-query computeWidth() and re-flow the status line
-				IContributionManager parent = getParent();
-				if (parent != null) {
-					parent.update(true);
-				}
 			}
 		});
 	}

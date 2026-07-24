@@ -13,7 +13,7 @@ import org.eclipse.oct.internal.CollaborationInstance;
 import org.eclipse.oct.internal.util.EventEmitter;
 
 /**
- * Abstract base for message handlers. 
+ * Abstract base for message handlers.
  * Holds a reference to the CollaborationInstance, deferred callbacks,
  * and implements the LSP4J Endpoint interface.
  */

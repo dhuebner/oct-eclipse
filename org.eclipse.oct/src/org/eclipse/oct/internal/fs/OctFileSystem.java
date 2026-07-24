@@ -12,7 +12,7 @@ import org.eclipse.core.filesystem.provider.FileSystem;
 
 /**
  * EFS guest file system for the "oct" scheme.
- * 
+ *
  *
  * URI shape: oct://<sessionId>/<sharedRoot>/<relative/path>
  * The authority is the session room ID; path[0] is the shared root name.
@@ -62,6 +62,8 @@ public class OctFileSystem extends FileSystem {
     /** Invalidate one store by path (called on fileSystem/change). */
     public void invalidate(URI uri) {
         OctFileStore store = storeCache.get(uri.toString());
-        if (store != null) store.invalidateCache();
+        if (store != null) {
+			store.invalidateCache();
+		}
     }
 }

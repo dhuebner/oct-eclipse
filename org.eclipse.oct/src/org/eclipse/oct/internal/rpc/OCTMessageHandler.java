@@ -24,7 +24,7 @@ import org.eclipse.ui.PlatformUI;
 
 /**
  * Handles inbound OCT messages from the service process.
- * 
+ *
  */
 public class OCTMessageHandler extends BaseMessageHandler {
 
@@ -49,7 +49,9 @@ public class OCTMessageHandler extends BaseMessageHandler {
     @JsonNotification
     public void error(String message, String stack) {
         LOG.severe("OCT service error: " + message);
-        if (stack != null) LOG.severe("Stack: " + stack);
+        if (stack != null) {
+			LOG.severe("Stack: " + stack);
+		}
     }
 
     @JsonRequest(value = "room/joinSessionRequest")

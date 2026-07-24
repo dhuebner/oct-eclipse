@@ -4,12 +4,12 @@
  */
 package org.eclipse.oct.internal.prefs;
 
+import org.eclipse.core.runtime.preferences.InstanceScope;
 import org.eclipse.jface.preference.FieldEditorPreferencePage;
 import org.eclipse.jface.preference.StringFieldEditor;
 import org.eclipse.ui.IWorkbench;
 import org.eclipse.ui.IWorkbenchPreferencePage;
 import org.eclipse.ui.preferences.ScopedPreferenceStore;
-import org.eclipse.core.runtime.preferences.InstanceScope;
 
 /**
  * Preference page for Open Collaboration Tools. Port of OCTSettings configurable.

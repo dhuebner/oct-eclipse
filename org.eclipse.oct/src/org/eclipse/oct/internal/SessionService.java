@@ -34,6 +34,7 @@ import org.eclipse.oct.internal.rpc.FileSystemMessageHandler;
 import org.eclipse.oct.internal.rpc.OCTMessageHandler;
 import org.eclipse.oct.internal.rpc.OCTService;
 import org.eclipse.oct.internal.rpc.ServiceProcess;
+import org.eclipse.oct.internal.ui.SessionCreatedDialog;
 import org.eclipse.oct.internal.util.EventEmitter;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.ui.PlatformUI;
@@ -74,8 +75,9 @@ public class SessionService {
 	}
 
 	public void createRoom(Workspace workspace, IProject project) {
-		if (instances.containsKey(project))
+		if (instances.containsKey(project)) {
 			return;
+		}
 
 		String serverUrl = OCTSettings.getInstance().getDefaultServerURL();
 		ServiceProcess process = createServiceProcess(serverUrl);
@@ -93,12 +95,8 @@ public class SessionService {
 					if (sessionData != null) {
 						sessionCreated(sessionData, serverUrl, project, monitor, true);
 						Display.getDefault().asyncExec(() -> {
-							String msg = "Hosted session created!\nRoom ID: " + sessionData.roomId
-									+ "\n\nShare this ID with collaborators.";
-							System.out.println("SessionService.createRoom(...).new Job() {...}.run(): " + sessionData.roomId);
-							MessageDialog.openInformation(
-									PlatformUI.getWorkbench().getActiveWorkbenchWindow().getShell(),
-									"Open Collaboration Tools", msg);
+							new SessionCreatedDialog(PlatformUI.getWorkbench().getActiveWorkbenchWindow().getShell(),
+									sessionData.roomId, serverUrl).open();
 						});
 					}
 				} catch (Exception e) {
@@ -178,12 +176,14 @@ public class SessionService {
 		}
 
 		ServiceProcess process = processes.remove(project);
-		if (process != null)
+		if (process != null) {
 			process.close();
+		}
 
 		CollaborationInstance instance = instances.remove(project);
-		if (instance != null)
+		if (instance != null) {
 			instance.dispose();
+		}
 
 		onSessionClosed.fire(project);
 	}
@@ -199,14 +199,16 @@ public class SessionService {
 		}
 	}
 
-	private void sessionCreated(SessionData sessionData, String serverUrl, IProject project, IProgressMonitor monitor, boolean isHost) {
+	private void sessionCreated(SessionData sessionData, String serverUrl, IProject project, IProgressMonitor monitor,
+			boolean isHost) {
 		if (sessionData.authToken != null) {
 			AuthenticationService.getInstance().onAuthenticated(sessionData.authToken, serverUrl);
 		}
 
 		ServiceProcess process = processes.get(project);
-		if (process == null)
+		if (process == null) {
 			throw new IllegalStateException("No process found for project: " + project.getName());
+		}
 
 		WorkspaceFileSystemService wfs = new WorkspaceFileSystemService(project);
 		CollaborationInstance instance = new CollaborationInstance(process.getOctService(), project, sessionData,

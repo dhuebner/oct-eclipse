@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * Lightweight event bus. 
+ * Lightweight event bus.
  */
 public class EventEmitter<T> {
 

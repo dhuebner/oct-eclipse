@@ -26,7 +26,7 @@ import org.eclipse.oct.internal.rpc.FileSystemService;
 
 /**
  * Listens for local workspace changes and broadcasts them to guests.
- * 
+ *
  */
 public class WorkspaceChangeListener implements IResourceChangeListener {
 
@@ -40,8 +40,9 @@ public class WorkspaceChangeListener implements IResourceChangeListener {
 
     @Override
     public void resourceChanged(IResourceChangeEvent event) {
-        if (event.getType() != IResourceChangeEvent.POST_CHANGE) return;
-        if (event.getDelta() == null) return;
+        if ((event.getType() != IResourceChangeEvent.POST_CHANGE) || (event.getDelta() == null)) {
+			return;
+		}
 
         Map<IProject, List<FileChange>> projectChanges = new HashMap<>();
 
@@ -50,14 +51,20 @@ public class WorkspaceChangeListener implements IResourceChangeListener {
                 @Override
                 public boolean visit(IResourceDelta delta) throws CoreException {
                     IResource resource = delta.getResource();
-                    if (resource.getType() == IResource.ROOT) return true;
+                    if (resource.getType() == IResource.ROOT) {
+						return true;
+					}
 
                     IProject project = resource.getProject();
-                    if (project == null) return false;
+                    if (project == null) {
+						return false;
+					}
 
                     // Only care about hosted projects
                     CollaborationInstance instance = sessionService.getCollaborationInstance(project);
-                    if (instance == null || !instance.isHost) return false;
+                    if (instance == null || !instance.isHost) {
+						return false;
+					}
 
                     String path = project.getName() + "/" + resource.getProjectRelativePath().toString();
 

@@ -19,7 +19,7 @@ import com.google.gson.stream.JsonWriter;
  * Gson TypeAdapter that wraps binary payloads as:
  * {"type":"binaryData","data":"<base64(msgpack(value))>"}
  *
- * 
+ *
  */
 public class BinaryDataAdapter<T> extends TypeAdapter<T> {
 

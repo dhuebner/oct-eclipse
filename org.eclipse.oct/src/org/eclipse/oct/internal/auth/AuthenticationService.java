@@ -12,8 +12,8 @@ import java.util.stream.Collectors;
 import org.eclipse.equinox.security.storage.ISecurePreferences;
 import org.eclipse.equinox.security.storage.SecurePreferencesFactory;
 import org.eclipse.equinox.security.storage.StorageException;
-import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.viewers.LabelProvider;
+import org.eclipse.jface.window.Window;
 import org.eclipse.oct.internal.prefs.OCTSettings;
 import org.eclipse.oct.internal.protocol.AuthMetadata;
 import org.eclipse.oct.internal.protocol.AuthProvider;
@@ -25,7 +25,7 @@ import org.eclipse.ui.dialogs.ElementListSelectionDialog;
 
 /**
  * Handles authentication flows and token storage.
- * 
+ *
  */
 public class AuthenticationService {
 
@@ -39,7 +39,9 @@ public class AuthenticationService {
     private LoginBrowserDialog currentBrowserDialog;
 
     public static AuthenticationService getInstance() {
-        if (INSTANCE == null) INSTANCE = new AuthenticationService();
+        if (INSTANCE == null) {
+			INSTANCE = new AuthenticationService();
+		}
         return INSTANCE;
     }
 
@@ -74,7 +76,7 @@ public class AuthenticationService {
                 chooser.setElements(names.toArray());
                 chooser.setMultipleSelection(false);
 
-                if (chooser.open() == Dialog.OK && chooser.getFirstResult() != null) {
+                if (chooser.open() == Window.OK && chooser.getFirstResult() != null) {
                     String selectedName = (String) chooser.getFirstResult();
                     AuthProvider selected = Arrays.stream(metadata.providers)
                             .filter(p -> selectedName.equals(p.name != null ? p.name : p.type))

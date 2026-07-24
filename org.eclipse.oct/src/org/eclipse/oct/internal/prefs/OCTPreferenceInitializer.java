@@ -5,9 +5,9 @@
 package org.eclipse.oct.internal.prefs;
 
 import org.eclipse.core.runtime.preferences.AbstractPreferenceInitializer;
+import org.eclipse.core.runtime.preferences.InstanceScope;
 import org.eclipse.jface.preference.IPreferenceStore;
 import org.eclipse.ui.preferences.ScopedPreferenceStore;
-import org.eclipse.core.runtime.preferences.InstanceScope;
 
 /**
  * Initializes default preference values.

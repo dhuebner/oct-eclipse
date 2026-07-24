@@ -31,14 +31,20 @@ public class ToggleFollowHandler extends AbstractHandler {
         String peerId = event.getParameter(PARAM_PEER_ID);
 
         SessionService svc = SessionService.getInstance();
-        if (svc == null) return null;
+        if (svc == null) {
+			return null;
+		}
 
         CollaborationInstance instance = svc.getAllInstances().values().stream()
                 .findFirst().orElse(null);
-        if (instance == null) return null;
+        if (instance == null) {
+			return null;
+		}
 
         var editorManager = instance.getEditorManager();
-        if (editorManager == null) return null;
+        if (editorManager == null) {
+			return null;
+		}
 
         String currentlyFollowing = editorManager.getFollowingPeerId();
 

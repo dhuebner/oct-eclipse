@@ -29,7 +29,9 @@ public class PeerSelectionDrawingStrategy implements IDrawingStrategy {
             textWidget.redrawRange(offset, length, true);
             return;
         }
-        if (!(annotation instanceof PeerAnnotation peer) || length <= 0) return;
+        if (!(annotation instanceof PeerAnnotation peer) || length <= 0) {
+			return;
+		}
 
         Color peerColor = getColor(textWidget, peer.getColor());
         int savedAlpha = gc.getAlpha();
@@ -68,7 +70,9 @@ public class PeerSelectionDrawingStrategy implements IDrawingStrategy {
     }
 
     public void dispose() {
-        colorCache.values().forEach(c -> { if (!c.isDisposed()) c.dispose(); });
+        colorCache.values().forEach(c -> { if (!c.isDisposed()) {
+			c.dispose();
+		} });
         colorCache.clear();
     }
 }

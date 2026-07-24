@@ -13,7 +13,7 @@ import org.eclipse.core.runtime.preferences.InstanceScope;
 import org.osgi.service.prefs.BackingStoreException;
 
 /**
- * Settings facade backed by IEclipsePreferences. 
+ * Settings facade backed by IEclipsePreferences.
  */
 public class OCTSettings {
 
@@ -25,7 +25,9 @@ public class OCTSettings {
     private static OCTSettings INSTANCE;
 
     public static OCTSettings getInstance() {
-        if (INSTANCE == null) INSTANCE = new OCTSettings();
+        if (INSTANCE == null) {
+			INSTANCE = new OCTSettings();
+		}
         return INSTANCE;
     }
 
@@ -44,7 +46,9 @@ public class OCTSettings {
 
     public List<String> getStoredUserTokens() {
         String raw = getPrefs().get(KEY_STORED_TOKENS, "");
-        if (raw.isBlank()) return new ArrayList<>();
+        if (raw.isBlank()) {
+			return new ArrayList<>();
+		}
         return new ArrayList<>(Arrays.asList(raw.split(",")));
     }
 

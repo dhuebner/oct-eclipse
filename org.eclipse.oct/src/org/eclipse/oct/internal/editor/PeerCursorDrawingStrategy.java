@@ -32,7 +32,9 @@ public class PeerCursorDrawingStrategy implements IDrawingStrategy {
             return;
         }
 
-        if (!(annotation instanceof PeerAnnotation peer)) return;
+        if (!(annotation instanceof PeerAnnotation peer)) {
+			return;
+		}
 
         Color peerColor = getColor(textWidget, peer.getColor());
         try {
@@ -51,7 +53,9 @@ public class PeerCursorDrawingStrategy implements IDrawingStrategy {
 
     /** Call when the editor closes to prevent SWT Color leaks. */
     public void dispose() {
-        colorCache.values().forEach(c -> { if (!c.isDisposed()) c.dispose(); });
+        colorCache.values().forEach(c -> { if (!c.isDisposed()) {
+			c.dispose();
+		} });
         colorCache.clear();
     }
 }

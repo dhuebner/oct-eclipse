@@ -40,7 +40,9 @@ public class DocumentSyncListener implements IDocumentListener {
 
     @Override
     public void documentChanged(DocumentEvent event) {
-        if (!sendUpdates.get()) return;  // echo guard — skip when applying remote edits
+        if (!sendUpdates.get()) {
+			return;  // echo guard — skip when applying remote edits
+		}
 
         int startOffset = event.getOffset();
         int endOffset = startOffset + event.getLength();
@@ -58,9 +60,11 @@ public class DocumentSyncListener implements IDocumentListener {
     }
 
     private void maybeResync(IDocument document) {
-        if (isSyncing.get()) return;
-        // Full resync via getDocumentContent is only triggered when we suspect drift.
-        // For now this is a no-op placeholder — full sync is handled by the host
-        // broadcasting the canonical content when an editor is opened.
+        if (isSyncing.get()) {
+			return;
+			// Full resync via getDocumentContent is only triggered when we suspect drift.
+			// For now this is a no-op placeholder — full sync is handled by the host
+			// broadcasting the canonical content when an editor is opened.
+		}
     }
 }

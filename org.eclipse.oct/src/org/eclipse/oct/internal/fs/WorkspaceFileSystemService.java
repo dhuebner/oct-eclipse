@@ -23,15 +23,12 @@ import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.core.runtime.Path;
 import org.eclipse.oct.internal.WorkspaceFileSystemServiceHolder;
-import org.eclipse.oct.internal.protocol.FileChange;
-import org.eclipse.oct.internal.protocol.FileChangeEvent;
-import org.eclipse.oct.internal.protocol.FileChangeEventType;
 import org.eclipse.oct.internal.protocol.FileContent;
 import org.eclipse.oct.internal.protocol.FileSystemStat;
 import org.eclipse.oct.internal.protocol.FileType;
 
 /**
- * Host-side workspace file system service. 
+ * Host-side workspace file system service.
  * Provides file operations over the Eclipse workspace API.
  */
 public class WorkspaceFileSystemService implements WorkspaceFileSystemServiceHolder {
@@ -50,7 +47,9 @@ public class WorkspaceFileSystemService implements WorkspaceFileSystemServiceHol
 
     public FileSystemStat stat(String path) {
         IResource resource = findMember(path);
-        if (resource == null || !resource.exists()) return null;
+        if (resource == null || !resource.exists()) {
+			return null;
+		}
 
         FileType type = getFileType(resource);
         long mtime = resource.getLocalTimeStamp();
@@ -65,7 +64,9 @@ public class WorkspaceFileSystemService implements WorkspaceFileSystemServiceHol
 
     public FileContent readFile(String path) {
         IResource resource = findMember(path);
-        if (!(resource instanceof IFile file) || !file.exists()) return null;
+        if (!(resource instanceof IFile file) || !file.exists()) {
+			return null;
+		}
         try {
             byte[] bytes = file.getContents().readAllBytes();
             return new FileContent(bytes);
@@ -132,7 +133,9 @@ public class WorkspaceFileSystemService implements WorkspaceFileSystemServiceHol
     public CompletableFuture<Void> rename(String oldPath, String newPath) {
         return runInWorkspace(monitor -> {
             IResource resource = findMember(oldPath);
-            if (resource == null || !resource.exists()) return;
+            if (resource == null || !resource.exists()) {
+				return;
+			}
             IPath newRelPath = toRelativePath(newPath);
             IPath newFullPath = project.getFullPath().append(newRelPath);
             resource.move(newFullPath, true, monitor);
@@ -144,7 +147,9 @@ public class WorkspaceFileSystemService implements WorkspaceFileSystemServiceHol
      */
     public IResource findMember(String path) {
         IPath relPath = toRelativePath(path);
-        if (relPath.isEmpty()) return project;
+        if (relPath.isEmpty()) {
+			return project;
+		}
         return project.findMember(relPath);
     }
 
@@ -162,7 +167,9 @@ public class WorkspaceFileSystemService implements WorkspaceFileSystemServiceHol
     }
 
     private void createFolderHierarchy(IFolder folder, org.eclipse.core.runtime.IProgressMonitor monitor) throws CoreException {
-        if (folder.exists()) return;
+        if (folder.exists()) {
+			return;
+		}
         if (folder.getParent() instanceof IFolder parentFolder && !parentFolder.exists()) {
             createFolderHierarchy(parentFolder, monitor);
         }
@@ -170,7 +177,9 @@ public class WorkspaceFileSystemService implements WorkspaceFileSystemServiceHol
     }
 
     private FileType getFileType(IResource resource) {
-        if (resource.isLinked()) return FileType.SymbolicLink;
+        if (resource.isLinked()) {
+			return FileType.SymbolicLink;
+		}
         return switch (resource.getType()) {
             case IResource.FILE -> FileType.File;
             case IResource.FOLDER, IResource.PROJECT -> FileType.Directory;

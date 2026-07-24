@@ -25,7 +25,9 @@ public enum FileType {
 
     public static FileType fromValue(int value) {
         for (FileType ft : values()) {
-            if (ft.value == value) return ft;
+            if (ft.value == value) {
+				return ft;
+			}
         }
         return Unknown;
     }

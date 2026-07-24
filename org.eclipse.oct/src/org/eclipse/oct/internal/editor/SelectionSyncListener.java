@@ -6,10 +6,9 @@ package org.eclipse.oct.internal.editor;
 
 import java.util.logging.Logger;
 
-import org.eclipse.jface.viewers.ISelectionChangedListener;
-import org.eclipse.jface.viewers.ISelectionProvider;
-import org.eclipse.jface.viewers.SelectionChangedEvent;
 import org.eclipse.jface.text.ITextSelection;
+import org.eclipse.jface.viewers.ISelectionChangedListener;
+import org.eclipse.jface.viewers.SelectionChangedEvent;
 import org.eclipse.oct.internal.protocol.ClientTextSelection;
 import org.eclipse.oct.internal.rpc.OCTService;
 
@@ -32,7 +31,9 @@ public class SelectionSyncListener implements ISelectionChangedListener {
 
     @Override
     public void selectionChanged(SelectionChangedEvent event) {
-        if (!(event.getSelection() instanceof ITextSelection sel)) return;
+        if (!(event.getSelection() instanceof ITextSelection sel)) {
+			return;
+		}
 
         int start = sel.getOffset();
         int end = sel.getOffset() + sel.getLength();

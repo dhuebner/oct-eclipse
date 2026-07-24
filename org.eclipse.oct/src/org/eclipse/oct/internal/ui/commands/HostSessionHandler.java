@@ -48,15 +48,21 @@ public class HostSessionHandler extends AbstractHandler {
         ISelection selection = HandlerUtil.getCurrentSelection(event);
         if (selection instanceof IStructuredSelection ss && !ss.isEmpty()) {
             Object first = ss.getFirstElement();
-            if (first instanceof IProject p) return p;
-            if (first instanceof IResource r) return r.getProject();
+            if (first instanceof IProject p) {
+				return p;
+			}
+            if (first instanceof IResource r) {
+				return r.getProject();
+			}
         }
         // Fallback: active editor's project
         var page = HandlerUtil.getActiveWorkbenchWindow(event).getActivePage();
         if (page != null && page.getActiveEditor() != null) {
             var input = page.getActiveEditor().getEditorInput();
             IResource res = input.getAdapter(IResource.class);
-            if (res != null) return res.getProject();
+            if (res != null) {
+				return res.getProject();
+			}
         }
         return null;
     }

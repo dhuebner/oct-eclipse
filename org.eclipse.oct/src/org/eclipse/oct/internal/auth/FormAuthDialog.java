@@ -151,7 +151,9 @@ public class FormAuthDialog extends TitleAreaDialog {
         StringBuilder sb = new StringBuilder("{");
         boolean first = true;
         for (Map.Entry<String, String> entry : map.entrySet()) {
-            if (!first) sb.append(",");
+            if (!first) {
+				sb.append(",");
+			}
             sb.append('"').append(escapeJson(entry.getKey())).append("\":")
               .append('"').append(escapeJson(entry.getValue())).append('"');
             first = false;
@@ -160,7 +162,9 @@ public class FormAuthDialog extends TitleAreaDialog {
     }
 
     private static String escapeJson(String s) {
-        if (s == null) return "";
+        if (s == null) {
+			return "";
+		}
         return s.replace("\\", "\\\\")
                 .replace("\"", "\\\"")
                 .replace("\n", "\\n")

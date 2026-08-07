@@ -62,7 +62,12 @@ public final class TestPeer implements AutoCloseable {
 		this.username = username;
 		this.octHandler = new TestOCTMessageHandler(serverUrl, onSessionCreated, username);
 		this.fsHandler = new FileSystemMessageHandler(serverUrl, onSessionCreated);
-		this.serviceProcess = new ServiceProcess(serverUrl, List.<BaseMessageHandler>of(fsHandler, octHandler));
+		// Bypass AuthenticationService/Equinox secure storage: tests always perform
+		// a fresh simple-login against the local server, so there is never a saved
+		// token to look up, and secure storage can otherwise prompt for a master
+		// password the first time it's touched.
+		this.serviceProcess = new ServiceProcess(serverUrl, List.<BaseMessageHandler>of(fsHandler, octHandler),
+				() -> null);
 		this.remoteProxy = serviceProcess.getOctService();
 	}
 

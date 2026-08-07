@@ -73,6 +73,27 @@ Prerequisites for the tests: Node.js 20+ available on `PATH`, a checkout of
 open-collaboration-tools reachable via `-Doct.project.path=...` (defaults to
 `../open-collaboration-tools`).
 
+### Running from Eclipse (`OCT Tests.launch`)
+
+When Eclipse itself is launched from the Dock/Finder/Spotlight rather than a
+terminal, the JDT JUnit launcher's JVM does **not** inherit the `PATH` that a
+shell builds up from `.zshrc`/`.zprofile` (nvm, volta, fnm, Homebrew, ...), so
+a naive `node ...` process launch fails with
+`Cannot run program "node": error=2, No such file or directory` even though
+`node` works fine from a terminal.
+
+`OctTestServer` works around this automatically by (in order): honoring a
+`-Doct.node.executable=/path/to/node` VM argument if set, checking well-known
+install locations (Homebrew, system packages, Volta, nvm), and finally asking
+your login shell (`$SHELL -lc "command -v node"`) to resolve it. If all of
+that still fails on your machine, find the path with `command -v node` in a
+terminal and add it to the `VM_ARGUMENTS` in `OCT Tests.launch` (or the
+launch config's *Arguments* tab), e.g.:
+
+```
+-Doct.node.executable=/opt/homebrew/bin/node
+```
+
 ## Installing into Eclipse
 
 Add the update site URL or local path via **Help → Install New Software**.

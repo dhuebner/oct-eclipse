@@ -16,9 +16,12 @@
    (**Preferences → Plug-in Development → Target Platform**).
 4. The project should build cleanly. Run with **Run → Run As → Eclipse Application**.
 
-> **Note:** The `lib/` jars are pre-downloaded. The `bin/` executables must be built separately (see below).
+> **Note:** The `lib/` jars are pre-downloaded. The `oct-bin/` executable is built automatically
+> by `mvn verify` (see below) from the sibling `open-collaboration-tools` checkout.
 
-## Building the service-process executable
+## Building the service-process executable manually
+
+Normally the Tycho build does this for you. To produce the binary by hand:
 
 ```bash
 cd /path/to/open-collaboration-tools
@@ -26,25 +29,49 @@ npm install
 npm run create:executable   # produces binaries under packages/open-collaboration-service-process/bin/
 ```
 
-Then copy them into `org.eclipse.oct/bin/`:
+Then copy the resulting binary into `org.eclipse.oct/oct-bin/`:
 
 ```bash
-cp packages/open-collaboration-service-process/bin/* org.eclipse.oct/bin/
+cp packages/open-collaboration-service-process/bin/oct-service-process* org.eclipse.oct/oct-bin/
 ```
-
-Or pass the path to Maven (see below).
 
 ## Headless Tycho build
 
 ```bash
-# From oct-eclipse/
+# From oct-eclipse/. Uses oct.project.path=../open-collaboration-tools by default.
 mvn clean verify
 
-# Auto-stage executables from a sibling open-collaboration-tools checkout:
-mvn clean verify -Doct.project.path=../open-collaboration-tools
+# Override the path to open-collaboration-tools if it lives elsewhere:
+mvn clean verify -Doct.project.path=/absolute/path/to/open-collaboration-tools
 ```
 
+The build runs `npm install` and `npm run create:executable` inside the referenced
+open-collaboration-tools checkout, then stages the produced binary into
+`org.eclipse.oct/oct-bin/`. **This means the build hard-fails if Node.js 20+ is not
+on `PATH` or the sibling checkout is missing.**
+
 The p2 update site is produced at `org.eclipse.oct.repository/target/repository/`.
+
+## Running the integration tests
+
+The [`org.eclipse.oct.tests`](org.eclipse.oct.tests) fragment contains JUnit 5
+integration tests that spin up the real Node.js OCT server plus the native
+`oct-service-process` executable and drive the plugin's real internal classes
+to verify the host/guest handshake and file-system path conversion against the
+open-collaboration-tools protocol.
+
+```bash
+# Run the entire suite (built and executed as part of `mvn verify`):
+mvn -pl org.eclipse.oct.tests -am verify
+
+# Or, when you already have the target platform + native binary built,
+# just re-run the tests:
+mvn -pl org.eclipse.oct.tests -am -Dtycho.mode=maven test
+```
+
+Prerequisites for the tests: Node.js 20+ available on `PATH`, a checkout of
+open-collaboration-tools reachable via `-Doct.project.path=...` (defaults to
+`../open-collaboration-tools`).
 
 ## Installing into Eclipse
 
@@ -69,6 +96,7 @@ oct-eclipse/
     bin/              oct-service-process executables (per platform)
     META-INF/MANIFEST.MF
     plugin.xml
+  org.eclipse.oct.tests/            Integration test fragment (Tycho eclipse-test-plugin)
   org.eclipse.oct.feature/          Eclipse feature
   org.eclipse.oct.repository/       p2 update site (category.xml)
   org.eclipse.oct.target/           Target platform (.target — Eclipse 2025-03)

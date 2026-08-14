@@ -49,6 +49,27 @@ public class OctFileStore extends FileStore {
 	/** Cached IFileInfo — null means stale/not yet fetched. */
 	private volatile IFileInfo cachedInfo;
 
+	/**
+	 * Depth of {@link #suppressWrite(Runnable)} on this thread. A host save
+	 * arriving as {@code writeFile} must clear the guest editor's dirty flag
+	 * without echoing another write back to the host.
+	 */
+	private static final ThreadLocal<Integer> suppressWriteDepth = ThreadLocal.withInitial(() -> 0);
+
+	/** Run {@code action} so {@link #openOutputStream} skips the host RPC. */
+	public static void suppressWrite(Runnable action) {
+		suppressWriteDepth.set(suppressWriteDepth.get() + 1);
+		try {
+			action.run();
+		} finally {
+			suppressWriteDepth.set(suppressWriteDepth.get() - 1);
+		}
+	}
+
+	private static boolean isWriteSuppressed() {
+		return suppressWriteDepth.get() > 0;
+	}
+
 	public OctFileStore(URI uri) {
 		this.uri = normalize(uri);
 	}
@@ -197,6 +218,10 @@ public class OctFileStore extends FileStore {
 			@Override
 			public void close() throws IOException {
 				super.close();
+				if (isWriteSuppressed()) {
+					invalidateCache();
+					return;
+				}
 				byte[] data = toByteArray();
 				FileContent content = new FileContent(data);
 				try {

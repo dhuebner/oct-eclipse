@@ -20,6 +20,7 @@ import java.util.logging.Logger;
 
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IProject;
+import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.core.runtime.Path;
 import org.eclipse.jface.text.BadLocationException;
@@ -37,6 +38,7 @@ import org.eclipse.jface.text.source.IAnnotationModelExtension;
 import org.eclipse.jface.text.source.ISourceViewer;
 import org.eclipse.jface.viewers.IPostSelectionProvider;
 import org.eclipse.oct.internal.PeerColors;
+import org.eclipse.oct.internal.fs.OctFileStore;
 import org.eclipse.oct.internal.protocol.ClientTextSelection;
 import org.eclipse.oct.internal.protocol.FileContent;
 import org.eclipse.oct.internal.protocol.TextDocumentInsert;
@@ -46,6 +48,7 @@ import org.eclipse.oct.internal.util.OctPaths;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.graphics.RGB;
 import org.eclipse.swt.widgets.Display;
+import org.eclipse.ui.IEditorInput;
 import org.eclipse.ui.IEditorPart;
 import org.eclipse.ui.IEditorReference;
 import org.eclipse.ui.IPartListener2;
@@ -54,6 +57,7 @@ import org.eclipse.ui.IWorkbenchPartReference;
 import org.eclipse.ui.PlatformUI;
 import org.eclipse.ui.ide.IDE;
 import org.eclipse.ui.texteditor.AbstractTextEditor;
+import org.eclipse.ui.texteditor.IDocumentProvider;
 import org.eclipse.ui.texteditor.ITextEditor;
 
 /**
@@ -471,10 +475,12 @@ public class EditorManager implements IPartListener2 {
 					int end = insert.endOffset != null ? insert.endOffset : start;
 					int length = end - start;
 					String text = insert.text != null ? insert.text.replace("\r\n", "\n") : "";
-					// Clamp to document length
 					int docLen = doc.getLength();
 					start = Math.min(start, docLen);
 					length = Math.min(length, docLen - start);
+					if (isSeedEcho(doc, start, length, text)) {
+						continue;
+					}
 					try {
 						doc.replace(start, length, text);
 					} catch (BadLocationException e) {
@@ -488,6 +494,19 @@ public class EditorManager implements IPartListener2 {
 				state.sendUpdates.set(true);
 			}
 		});
+	}
+
+	/**
+	 * Guest editors load from EFS before Yjs is seeded. The seed then arrives as
+	 * insert-at-0 of the <em>entire</em> current buffer. Applying that prepends
+	 * and duplicates. A one-character insert at 0 (typing at the start) must
+	 * still go through — {@code "2"} into {@code "1"} is a real edit.
+	 */
+	static boolean isSeedEcho(IDocument doc, int start, int length, String text) {
+		if (length != 0 || start != 0 || text == null || text.length() <= 1) {
+			return false;
+		}
+		return text.equals(doc.get().replace("\r\n", "\n"));
 	}
 
 	/**
@@ -690,7 +709,7 @@ public class EditorManager implements IPartListener2 {
 			}
 			// The document is normally already up to date via Yjs sync; only
 			// replace it if the incoming content actually differs, suppressing
-			// echo so we don't broadcast the change back to guests.
+			// echo so we don't broadcast the change back to peers.
 			if (content != null) {
 				String incoming = new String(content, StandardCharsets.UTF_8).replace("\r\n", "\n");
 				if (!incoming.equals(state.document.get())) {
@@ -703,13 +722,48 @@ public class EditorManager implements IPartListener2 {
 				}
 			}
 			try {
-				state.editor.doSave(new NullProgressMonitor());
+				if (isHost) {
+					state.editor.doSave(new NullProgressMonitor());
+				} else {
+					acceptRemoteSave(state);
+				}
 				handled.set(true);
 			} catch (Exception e) {
 				LOG.warning("Failed to save editor for: " + path + " - " + e.getMessage());
 			}
 		});
 		return handled.get();
+	}
+
+	/**
+	 * Guest-side: the host already persisted the file. Mark this editor clean
+	 * without {@code doSave()} — that uses overwrite=false and would prompt
+	 * "file has changed on the file system" after {@code refreshLocal} updates
+	 * the oct:// stamp, and would also echo {@code writeFile} back to the host.
+	 */
+	private void acceptRemoteSave(EditorState state) throws CoreException {
+		IDocumentProvider provider = state.editor.getDocumentProvider();
+		IEditorInput input = state.editor.getEditorInput();
+		if (provider == null || input == null || !provider.canSaveDocument(input)) {
+			return;
+		}
+		state.sendUpdates.set(false);
+		try {
+			OctFileStore.suppressWrite(() -> {
+				try {
+					provider.saveDocument(new NullProgressMonitor(), input, state.document, true);
+				} catch (CoreException e) {
+					throw new RuntimeException(e);
+				}
+			});
+		} catch (RuntimeException e) {
+			if (e.getCause() instanceof CoreException core) {
+				throw core;
+			}
+			throw e;
+		} finally {
+			state.sendUpdates.set(true);
+		}
 	}
 
 	private EditorState findEditorState(String octPath) {

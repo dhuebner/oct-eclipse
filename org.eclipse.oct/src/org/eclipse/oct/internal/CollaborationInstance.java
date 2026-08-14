@@ -18,6 +18,7 @@ import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.Path;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.core.runtime.jobs.Job;
 import org.eclipse.oct.internal.editor.EditorManager;
@@ -25,6 +26,7 @@ import org.eclipse.oct.internal.fs.OctFileSystem;
 import org.eclipse.oct.internal.protocol.ClientTextSelection;
 import org.eclipse.oct.internal.protocol.FileChange;
 import org.eclipse.oct.internal.protocol.FileChangeEvent;
+import org.eclipse.oct.internal.protocol.FileChangeEventType;
 import org.eclipse.oct.internal.protocol.FileContent;
 import org.eclipse.oct.internal.protocol.InitData;
 import org.eclipse.oct.internal.protocol.Peer;
@@ -203,26 +205,78 @@ public class CollaborationInstance {
 		}
 	}
 
+	/**
+	 * Host persisted {@code protocolPath}. Mark an open guest editor clean.
+	 * Do not {@code refreshLocal} an open editor — Eclipse would reload from
+	 * EFS and {@code DocumentSyncListener} would send the whole buffer back
+	 * as an insert, duplicating content. Runs off the JSON-RPC reader.
+	 */
+	public void acceptHostSave(String protocolPath, byte[] content) {
+		if (isHost || protocolPath == null) {
+			return;
+		}
+		invalidateGuestCache(protocolPath);
+		Display.getDefault().syncExec(() -> {
+			boolean open = editorManager != null && editorManager.saveIfOpen(protocolPath, content);
+			if (!open) {
+				refreshGuestPath(protocolPath);
+			}
+		});
+	}
+
 	public void handleFileSystemChange(FileChangeEvent event) {
-		if (!isHost) {
-			// Invalidate EFS caches and refresh the project resource tree
-			OctFileSystem efs = OctFileSystem.getInstance();
+		if (isHost) {
+			return;
+		}
+		// Must not saveIfOpen on the JSON-RPC reader thread: the UI save may
+		// stat the oct:// store and would deadlock the same connection.
+		Display.getDefault().asyncExec(() -> {
+			boolean needProjectRefresh = false;
 			for (FileChange change : event.changes) {
-				if (efs != null) {
-					try {
-						URI uri = OctPaths.toOctUri(sessionData.roomId, change.path);
-						efs.invalidate(uri);
-					} catch (Exception ignored) {
-					}
+				invalidateGuestCache(change.path);
+				if (change.type == FileChangeEventType.Update && editorManager != null
+						&& editorManager.saveIfOpen(change.path, null)) {
+					continue;
+				}
+				if (!refreshGuestPath(change.path)) {
+					needProjectRefresh = true;
 				}
 			}
-			Display.getDefault().asyncExec(() -> {
+			if (needProjectRefresh) {
 				try {
 					project.refreshLocal(IResource.DEPTH_INFINITE, null);
 				} catch (CoreException e) {
 					LOG.warning("Failed to refresh project: " + e.getMessage());
 				}
-			});
+			}
+		});
+	}
+
+	private void invalidateGuestCache(String protocolPath) {
+		OctFileSystem efs = OctFileSystem.getInstance();
+		if (efs == null || protocolPath == null) {
+			return;
+		}
+		try {
+			efs.invalidate(OctPaths.toOctUri(sessionData.roomId, protocolPath));
+		} catch (Exception ignored) {
+		}
+	}
+
+	private boolean refreshGuestPath(String protocolPath) {
+		if (protocolPath == null) {
+			return false;
+		}
+		IResource resource = project.findMember(new Path(OctPaths.normalize(protocolPath)));
+		if (resource == null || !resource.exists()) {
+			return false;
+		}
+		try {
+			resource.refreshLocal(IResource.DEPTH_ZERO, null);
+			return true;
+		} catch (CoreException e) {
+			LOG.warning("Failed to refresh '" + protocolPath + "': " + e.getMessage());
+			return false;
 		}
 	}
 

@@ -33,6 +33,7 @@ import org.eclipse.oct.internal.protocol.FileSystemStat;
 import org.eclipse.oct.internal.protocol.FileType;
 import org.eclipse.oct.internal.rpc.FileSystemService;
 import org.eclipse.oct.internal.rpc.OCTService;
+import org.eclipse.oct.internal.util.OctPaths;
 
 /**
  * EFS FileStore for the "oct://" guest file system. Every operation is a
@@ -252,17 +253,8 @@ public class OctFileStore extends FileStore {
 
 	// ---- Helpers ----
 
-	/**
-	 * Convert this store's URI to the protocol path string. URI:
-	 * oct://sessionId/sharedRoot/relative/path Protocol path:
-	 * sharedRoot/relative/path (authority-less)
-	 */
 	private String toOctPath() {
-		String path = uri.getPath();
-		if (path.startsWith("/")) {
-			path = path.substring(1);
-		}
-		return path;
+		return OctPaths.fromOctUri(uri);
 	}
 
 	private String sessionId() {

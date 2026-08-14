@@ -6,7 +6,10 @@ package org.eclipse.oct.internal;
 
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
 import org.eclipse.core.resources.IFolder;
@@ -22,12 +25,15 @@ import org.eclipse.oct.internal.fs.OctFileSystem;
 import org.eclipse.oct.internal.protocol.ClientTextSelection;
 import org.eclipse.oct.internal.protocol.FileChange;
 import org.eclipse.oct.internal.protocol.FileChangeEvent;
+import org.eclipse.oct.internal.protocol.FileContent;
 import org.eclipse.oct.internal.protocol.InitData;
 import org.eclipse.oct.internal.protocol.Peer;
 import org.eclipse.oct.internal.protocol.SessionData;
 import org.eclipse.oct.internal.protocol.TextDocumentInsert;
 import org.eclipse.oct.internal.rpc.BaseMessageHandler;
+import org.eclipse.oct.internal.rpc.FileSystemService;
 import org.eclipse.oct.internal.util.EventEmitter;
+import org.eclipse.oct.internal.util.OctPaths;
 import org.eclipse.swt.widgets.Display;
 
 /**
@@ -50,6 +56,14 @@ public class CollaborationInstance {
 	public final EventEmitter<Void> onPeersChanged = new EventEmitter<>();
 
 	private WorkspaceFileSystemServiceHolder workspaceFileSystemHolder;
+
+	/**
+	 * Peer id of an in-flight inbound {@code fileSystem/writeFile}, keyed by
+	 * protocol path. Used so a guest save is not echoed back to that same guest
+	 * as another writeFile (VS Code would {@code document.save()} again).
+	 */
+	private final Map<String, String> inboundWriteOrigins = new ConcurrentHashMap<>();
+	private final Map<String, long[]> lastPropagatedSave = new ConcurrentHashMap<>();
 
 	public CollaborationInstance(BaseMessageHandler.BaseRemoteInterface remoteInterface, IProject project,
 			SessionData sessionData, boolean isHost) {
@@ -91,6 +105,25 @@ public class CollaborationInstance {
 		onPeersChanged.fire(null);
 	}
 
+	/** Display name for a peer id (cursor name tag / session view). */
+	public String peerDisplayName(String peerId) {
+		if (peerId == null) {
+			return "";
+		}
+		if (identity != null && peerId.equals(identity.id) && identity.name != null) {
+			return identity.name;
+		}
+		if (host != null && peerId.equals(host.id) && host.name != null) {
+			return host.name;
+		}
+		for (Peer guest : guests) {
+			if (peerId.equals(guest.id) && guest.name != null && !guest.name.isBlank()) {
+				return guest.name;
+			}
+		}
+		return peerId;
+	}
+
 	public void updateTextSelection(String url, ClientTextSelection[] selections) {
 		// Delegate to EditorManager (wired at session start)
 		if (editorManager != null) {
@@ -110,6 +143,58 @@ public class CollaborationInstance {
 		}
 	}
 
+	public void beginInboundWrite(String path, String origin) {
+		if (path != null && origin != null && !origin.isBlank() && !"broadcast".equals(origin)) {
+			inboundWriteOrigins.put(OctPaths.normalize(path), origin);
+		}
+	}
+
+	public void endInboundWrite(String path) {
+		if (path != null) {
+			inboundWriteOrigins.remove(OctPaths.normalize(path));
+		}
+	}
+
+	/**
+	 * Host save (or a guest save that landed on disk) must also
+	 * {@code fileSystem/writeFile} each other guest. VS Code only calls
+	 * {@code document.save()} on {@code fs.onWriteFile} — {@code fs.onChange}
+	 * only refreshes the explorer, so a host Ctrl+S otherwise leaves the guest
+	 * editor dirty.
+	 */
+	public void propagateSaveToGuests(String protocolPath, byte[] content) {
+		if (!isHost || content == null || guests.isEmpty()) {
+			return;
+		}
+		if (!(remoteInterface instanceof FileSystemService fs)) {
+			return;
+		}
+		String path = OctPaths.normalize(protocolPath);
+		if (path.isEmpty()) {
+			return;
+		}
+		long now = System.currentTimeMillis();
+		int hash = Arrays.hashCode(content);
+		long[] prev = lastPropagatedSave.get(path);
+		if (prev != null && prev[0] == hash && now - prev[1] < 750) {
+			return;
+		}
+		lastPropagatedSave.put(path, new long[] { hash, now });
+
+		String exclude = inboundWriteOrigins.get(path);
+		FileContent payload = new FileContent(content);
+		for (Peer guest : guests) {
+			if (guest == null || guest.id == null || guest.id.equals(exclude)) {
+				continue;
+			}
+			try {
+				fs.writeFile(path, payload, guest.id);
+			} catch (Exception e) {
+				LOG.warning("Failed to propagate save of '" + path + "' to " + guest.id + ": " + e.getMessage());
+			}
+		}
+	}
+
 	public void handleFileSystemChange(FileChangeEvent event) {
 		if (!isHost) {
 			// Invalidate EFS caches and refresh the project resource tree
@@ -117,7 +202,7 @@ public class CollaborationInstance {
 			for (FileChange change : event.changes) {
 				if (efs != null) {
 					try {
-						URI uri = new URI("oct", sessionData.roomId, "/" + change.path, null, null);
+						URI uri = OctPaths.toOctUri(sessionData.roomId, change.path);
 						efs.invalidate(uri);
 					} catch (Exception ignored) {
 					}
@@ -148,7 +233,7 @@ public class CollaborationInstance {
 				for (String root : sessionData.workspace.folders) {
 					try {
 						// Create a linked folder pointing at oct://<sessionId>/<root>
-						URI octUri = new URI("oct", sessionId, "/" + root, null, null);
+						URI octUri = OctPaths.toOctUri(sessionId, root);
 						IFolder folder = project.getFolder(root);
 						if (!folder.exists()) {
 							folder.createLink(octUri, IResource.REPLACE | IResource.ALLOW_MISSING_LOCAL, monitor);

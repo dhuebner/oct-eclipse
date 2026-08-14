@@ -92,8 +92,11 @@ public class FileSystemMessageHandler extends BaseMessageHandler {
 			return wfs.writeFile(path, content);
 		}
 		byte[] bytes = content != null ? content.content : null;
-		return CompletableFuture.supplyAsync(() -> em.saveIfOpen(path, bytes)).thenCompose(
-				handled -> handled ? CompletableFuture.<Void>completedFuture(null) : wfs.writeFile(path, content));
+		collaborationInstance.beginInboundWrite(path, origin);
+		return CompletableFuture.supplyAsync(() -> em.saveIfOpen(path, bytes))
+				.thenCompose(handled -> handled ? CompletableFuture.<Void>completedFuture(null)
+						: wfs.writeFile(path, content))
+				.whenComplete((r, e) -> collaborationInstance.endInboundWrite(path));
 	}
 
 	@JsonRequest

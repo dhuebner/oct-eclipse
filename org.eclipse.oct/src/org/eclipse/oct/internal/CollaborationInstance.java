@@ -82,6 +82,11 @@ public class CollaborationInstance {
 		return workspaceFileSystemHolder;
 	}
 
+	public void setIdentity(Peer peer) {
+		this.identity = peer;
+		onPeersChanged.fire(null);
+	}
+
 	public void initPeers(InitData initData) {
 		if (initData.guests != null) {
 			for (Peer g : initData.guests) {
@@ -102,6 +107,9 @@ public class CollaborationInstance {
 
 	public void peerLeft(Peer peer) {
 		guests.removeIf(g -> g.id.equals(peer.id));
+		if (editorManager != null) {
+			editorManager.forgetPeer(peer.id);
+		}
 		onPeersChanged.fire(null);
 	}
 
@@ -138,8 +146,11 @@ public class CollaborationInstance {
 	}
 
 	public void editorOpened(String documentPath, String peerId) {
-		if (isHost && editorManager != null) {
-			editorManager.guestOpenedEditor(documentPath);
+		if (editorManager != null) {
+			editorManager.recordPeerDocument(peerId, documentPath);
+			if (isHost) {
+				editorManager.guestOpenedEditor(documentPath);
+			}
 		}
 	}
 
@@ -163,10 +174,7 @@ public class CollaborationInstance {
 	 * editor dirty.
 	 */
 	public void propagateSaveToGuests(String protocolPath, byte[] content) {
-		if (!isHost || content == null || guests.isEmpty()) {
-			return;
-		}
-		if (!(remoteInterface instanceof FileSystemService fs)) {
+		if (!isHost || content == null || guests.isEmpty() || !(remoteInterface instanceof FileSystemService fs)) {
 			return;
 		}
 		String path = OctPaths.normalize(protocolPath);

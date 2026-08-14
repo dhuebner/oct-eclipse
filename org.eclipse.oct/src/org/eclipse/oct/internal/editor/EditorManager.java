@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
@@ -40,6 +41,7 @@ import org.eclipse.oct.internal.protocol.ClientTextSelection;
 import org.eclipse.oct.internal.protocol.FileContent;
 import org.eclipse.oct.internal.protocol.TextDocumentInsert;
 import org.eclipse.oct.internal.rpc.OCTService;
+import org.eclipse.oct.internal.util.EventEmitter;
 import org.eclipse.oct.internal.util.OctPaths;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.graphics.RGB;
@@ -92,6 +94,10 @@ public class EditorManager implements IPartListener2 {
 
 	public String followingPeerId = null;
 
+	/** Last known document path per peer (from selection or editorOpened). */
+	private final Map<String, String> peerDocumentPaths = new ConcurrentHashMap<>();
+	public final EventEmitter<Void> onPresenceChanged = new EventEmitter<>();
+
 	/**
 	 * When {@code true}, a guest opening/selecting a file steals the host's editor
 	 * focus (auto-opens and activates it). Off by default since this is disruptive
@@ -132,10 +138,7 @@ public class EditorManager implements IPartListener2 {
 
 	@Override
 	public void partOpened(IWorkbenchPartReference ref) {
-		if (disposed.get()) {
-			return;
-		}
-		if (!(ref instanceof IEditorReference editorRef)) {
+		if (disposed.get() || !(ref instanceof IEditorReference editorRef)) {
 			return;
 		}
 		// Use the opened editor, not the active one — otherwise opening a second
@@ -527,6 +530,8 @@ public class EditorManager implements IPartListener2 {
 						}
 					}
 
+					recordPeerDocument(sel.peer, octPath);
+
 					// Follow mode
 					if (sel.peer.equals(followingPeerId)) {
 						followTo(eclipseFile(octPath), caretOffset);
@@ -573,16 +578,7 @@ public class EditorManager implements IPartListener2 {
 			}
 
 			EditorState existing = findEditorState(path);
-			if (existing != null) {
-				// Already open/registered on the host — content is already
-				// live-synced, so only bring it to front if opted in.
-				if (followGuestSelection) {
-					activateEditor(file);
-				}
-				return;
-			}
-
-			if (seededPaths.contains(documentPath)) {
+			if ((existing != null) || seededPaths.contains(documentPath)) {
 				// Already pushed once via the no-UI path below (e.g. a second
 				// guest opening the same file before the host does) — sending
 				// openDocument again would be a needless full-document replace.
@@ -620,7 +616,11 @@ public class EditorManager implements IPartListener2 {
 	}
 
 	public void setFollowGuestSelection(boolean followGuestSelection) {
+		if (this.followGuestSelection == followGuestSelection) {
+			return;
+		}
 		this.followGuestSelection = followGuestSelection;
+		onPresenceChanged.fire(null);
 	}
 
 	private void followTo(IFile file, int offset) {
@@ -640,10 +640,33 @@ public class EditorManager implements IPartListener2 {
 
 	public void followPeer(String peerId) {
 		this.followingPeerId = peerId;
+		onPresenceChanged.fire(null);
 	}
 
 	public void stopFollowing() {
 		this.followingPeerId = null;
+		onPresenceChanged.fire(null);
+	}
+
+	public void recordPeerDocument(String peerId, String octPath) {
+		if (peerId == null || octPath == null || octPath.isBlank()) {
+			return;
+		}
+		String path = OctPaths.normalize(octPath);
+		String prev = peerDocumentPaths.put(peerId, path);
+		if (!path.equals(prev)) {
+			onPresenceChanged.fire(null);
+		}
+	}
+
+	public String getPeerDocumentPath(String peerId) {
+		return peerId == null ? null : peerDocumentPaths.get(peerId);
+	}
+
+	public void forgetPeer(String peerId) {
+		if (peerId != null) {
+			peerDocumentPaths.remove(peerId);
+		}
 	}
 
 	public String getFollowingPeerId() {
@@ -708,6 +731,7 @@ public class EditorManager implements IPartListener2 {
 	public void dispose() {
 		disposed.set(true);
 		seededPaths.clear();
+		peerDocumentPaths.clear();
 		Display.getDefault().asyncExec(() -> {
 			if (PlatformUI.isWorkbenchRunning()) {
 				try {

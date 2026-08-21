@@ -171,6 +171,13 @@ public class EditorManager implements IPartListener2 {
 			// content on every partOpened marks guest editors dirty for no reason.
 			return;
 		}
+		// Opening a brand-new editor doesn't itself fire a selection-changed event —
+		// SelectionSyncListener (just attached by registerEditor above) only reacts
+		// to *future* caret moves. Without sending the current selection now, a peer
+		// with followingPeerId pointed at us (or just watching the "File" column)
+		// never learns we opened this document until we happen to move the caret,
+		// mirroring VS Code's onDidChangeActiveTextEditor handling (see partActivated).
+		sendCurrentSelection(octPath, textEditor);
 		if (seededPaths.remove(octPath)) {
 			// Content was already pushed to Yjs from guestOpenedEditor's no-UI
 			// path (a guest opened this file before the host did). The listeners
@@ -325,10 +332,22 @@ public class EditorManager implements IPartListener2 {
 		}
 		String octPath = octPath(file);
 		if (findEditorState(octPath) == null) {
-			// Not registered yet — partOpened() will handle the initial seed;
-			// nothing to resend before that has happened.
+			// Not registered yet — partOpened() sends the initial selection itself.
 			return;
 		}
+		sendCurrentSelection(octPath, textEditor);
+	}
+
+	/**
+	 * Sends {@code textEditor}'s current caret/selection immediately. Needed both
+	 * from {@link #partOpened} (a freshly attached {@link SelectionSyncListener}
+	 * only reacts to future caret moves, never the initial position) and from
+	 * {@link #partActivated} (switching to an already-open tab doesn't move the
+	 * caret, so no selection-changed event fires either) — without this, a peer
+	 * following us via {@link #followingPeerId} never learns we switched to a new
+	 * document until we happen to move the caret.
+	 */
+	private void sendCurrentSelection(String octPath, ITextEditor textEditor) {
 		if (textEditor.getSelectionProvider() == null) {
 			return;
 		}
@@ -340,7 +359,7 @@ public class EditorManager implements IPartListener2 {
 		try {
 			remoteService.updateTextSelection(octPath, new ClientTextSelection[] { selection });
 		} catch (Exception e) {
-			LOG.warning("Failed to send activation selection for " + octPath + ": " + e.getMessage());
+			LOG.warning("Failed to send selection for " + octPath + ": " + e.getMessage());
 		}
 	}
 
@@ -557,8 +576,27 @@ public class EditorManager implements IPartListener2 {
 	 */
 	public void updateTextSelection(String octPath, ClientTextSelection[] selections) {
 		Display.getDefault().asyncExec(() -> {
+			// Record each peer's current document (for the Session View "File" column)
+			// and react to follow-mode *before* checking for a local EditorState —
+			// otherwise both only ever worked for paths we already happened to have
+			// open ourselves, which defeats the point of a presence display and of
+			// following a peer into a file we haven't opened yet. followTo() opens
+			// the file itself when needed, so no local editor state is required here.
+			if (selections != null) {
+				for (ClientTextSelection sel : selections) {
+					if (sel.peer == null) {
+						continue;
+					}
+					recordPeerDocument(sel.peer, octPath);
+					if (sel.peer.equals(followingPeerId)) {
+						followTo(eclipseFile(octPath), sel.start);
+					}
+				}
+			}
+
 			EditorState state = findEditorState(octPath);
 			if (state == null) {
+				// Nothing open locally for this path - no annotations to render.
 				return;
 			}
 
@@ -589,13 +627,6 @@ public class EditorManager implements IPartListener2 {
 							toAdd.put(new PeerAnnotation(PeerAnnotation.TYPE_SELECTION, sel.peer, name, color, false),
 									new Position(start, end - start));
 						}
-					}
-
-					recordPeerDocument(sel.peer, octPath);
-
-					// Follow mode
-					if (sel.peer.equals(followingPeerId)) {
-						followTo(eclipseFile(octPath), caretOffset);
 					}
 				}
 			}
@@ -697,7 +728,22 @@ public class EditorManager implements IPartListener2 {
 			// otherwise the follower never actually sees the tab switch.
 			IEditorPart editor = IDE.openEditor(page, file, true);
 			if (editor instanceof ITextEditor textEditor) {
-				textEditor.selectAndReveal(offset, 0);
+				// Clamp against the just-opened editor's own document rather than
+				// relying on a pre-existing local EditorState (there may be none yet
+				// if we're following into a file we haven't opened before).
+				IDocument doc = textEditor.getDocumentProvider().getDocument(textEditor.getEditorInput());
+				int clamped = doc != null ? Math.max(0, Math.min(offset, doc.getLength())) : Math.max(0, offset);
+				// Scroll the viewport to the peer's location without touching our
+				// own caret/selection — selectAndReveal() would move *our* cursor
+				// there too, which is surprising and would itself broadcast a new
+				// selection update. ISourceViewer#revealRange only scrolls.
+				ISourceViewer viewer = getSourceViewer(textEditor);
+				if (viewer != null) {
+					viewer.revealRange(clamped, 0);
+				} else {
+					// Fallback for editors we can't get a source viewer from.
+					textEditor.selectAndReveal(clamped, 0);
+				}
 			}
 		} catch (Exception e) {
 			LOG.warning("Follow-mode failed: " + e.getMessage());
@@ -706,11 +752,13 @@ public class EditorManager implements IPartListener2 {
 
 	public void followPeer(String peerId) {
 		this.followingPeerId = peerId;
+		setFollowGuestSelection(true);
 		onPresenceChanged.fire(null);
 	}
 
 	public void stopFollowing() {
 		this.followingPeerId = null;
+		setFollowGuestSelection(false);
 		onPresenceChanged.fire(null);
 	}
 

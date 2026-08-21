@@ -32,6 +32,7 @@ import org.eclipse.jface.text.DocumentRewriteSession;
 import org.eclipse.jface.text.DocumentRewriteSessionType;
 import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.text.IDocumentExtension4;
+import org.eclipse.jface.text.ITextSelection;
 import org.eclipse.jface.text.ITextViewerExtension2;
 import org.eclipse.jface.text.Position;
 import org.eclipse.jface.text.source.Annotation;
@@ -301,8 +302,46 @@ public class EditorManager implements IPartListener2 {
 		unregisterEditor(octPath(file));
 	}
 
+	/**
+	 * Switching to an already-open tab doesn't move the caret, so no
+	 * selection-changed event fires and {@link SelectionSyncListener} never
+	 * sends anything — peers (e.g. a host with {@link #followPeer} active for
+	 * this guest) would never learn the active document changed. Resend the
+	 * current selection unconditionally on activation instead, mirroring the
+	 * VS Code client's {@code onDidChangeActiveTextEditor} handling.
+	 */
 	@Override
 	public void partActivated(IWorkbenchPartReference ref) {
+		if (disposed.get() || !(ref instanceof IEditorReference editorRef)) {
+			return;
+		}
+		IEditorPart editor = editorRef.getEditor(false);
+		if (!(editor instanceof ITextEditor textEditor)) {
+			return;
+		}
+		IFile file = editor.getEditorInput().getAdapter(IFile.class);
+		if (file == null || !file.exists() || !file.getProject().equals(project)) {
+			return;
+		}
+		String octPath = octPath(file);
+		if (findEditorState(octPath) == null) {
+			// Not registered yet — partOpened() will handle the initial seed;
+			// nothing to resend before that has happened.
+			return;
+		}
+		if (textEditor.getSelectionProvider() == null) {
+			return;
+		}
+		if (!(textEditor.getSelectionProvider().getSelection() instanceof ITextSelection textSelection)) {
+			return;
+		}
+		ClientTextSelection selection = new ClientTextSelection("self", textSelection.getOffset(),
+				textSelection.getOffset() + textSelection.getLength(), false);
+		try {
+			remoteService.updateTextSelection(octPath, new ClientTextSelection[] { selection });
+		} catch (Exception e) {
+			LOG.warning("Failed to send activation selection for " + octPath + ": " + e.getMessage());
+		}
 	}
 
 	@Override
@@ -653,7 +692,10 @@ public class EditorManager implements IPartListener2 {
 				return;
 			}
 			IWorkbenchPage page = PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage();
-			IEditorPart editor = IDE.openEditor(page, file, false);
+			// activate=true: bring the tab to the front (and (re)open it if the
+			// user had closed it) instead of just updating a background editor —
+			// otherwise the follower never actually sees the tab switch.
+			IEditorPart editor = IDE.openEditor(page, file, true);
 			if (editor instanceof ITextEditor textEditor) {
 				textEditor.selectAndReveal(offset, 0);
 			}

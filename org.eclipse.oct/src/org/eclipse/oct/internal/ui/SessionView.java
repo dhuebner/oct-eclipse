@@ -10,21 +10,20 @@ import java.util.List;
 import java.util.Map;
 
 import org.eclipse.jface.action.Action;
-import org.eclipse.jface.action.IAction;
 import org.eclipse.jface.action.IMenuManager;
-import org.eclipse.jface.action.IToolBarManager;
 import org.eclipse.jface.action.Separator;
 import org.eclipse.jface.layout.GridDataFactory;
 import org.eclipse.jface.layout.GridLayoutFactory;
 import org.eclipse.jface.layout.TableColumnLayout;
-import org.eclipse.jface.resource.ImageDescriptor;
 import org.eclipse.jface.viewers.ArrayContentProvider;
 import org.eclipse.jface.viewers.ColumnLabelProvider;
 import org.eclipse.jface.viewers.ColumnViewerToolTipSupport;
 import org.eclipse.jface.viewers.ColumnWeightData;
 import org.eclipse.jface.viewers.IStructuredSelection;
+import org.eclipse.jface.viewers.LabelProvider;
 import org.eclipse.jface.viewers.TableViewer;
 import org.eclipse.jface.viewers.TableViewerColumn;
+import org.eclipse.jface.window.Window;
 import org.eclipse.oct.internal.CollaborationInstance;
 import org.eclipse.oct.internal.SessionService;
 import org.eclipse.oct.internal.editor.EditorManager;
@@ -42,6 +41,7 @@ import org.eclipse.swt.widgets.Table;
 import org.eclipse.swt.widgets.TableItem;
 import org.eclipse.ui.ISharedImages;
 import org.eclipse.ui.PlatformUI;
+import org.eclipse.ui.dialogs.ListDialog;
 import org.eclipse.ui.menus.CommandContributionItem;
 import org.eclipse.ui.menus.CommandContributionItemParameter;
 import org.eclipse.ui.part.ViewPart;
@@ -61,10 +61,17 @@ public class SessionView extends ViewPart {
 	private org.eclipse.swt.graphics.Font roleFont;
 	private TableViewer viewer;
 
-	private Image followImage;
+	private Image checkboxCheckedImage;
+	private Image checkboxUncheckedImage;
 	private Image fileImage;
 	private final Map<RGB, Image> colorDots = new HashMap<>();
-	private Action followToolbarAction;
+	/**
+	 * Mirrors VS Code's {@code oct.followPeer} / {@code oct.stopFollowPeer}
+	 * command palette entries — available to host and guest alike (VS Code has
+	 * no host-only "auto-follow any guest" mode).
+	 */
+	private Action followPeerMenuAction;
+	private Action stopFollowingMenuAction;
 
 	private Runnable unsubscribeSessionCreated;
 	private Runnable unsubscribeSessionClosed;
@@ -83,26 +90,29 @@ public class SessionView extends ViewPart {
 		viewMenu.add(new Separator());
 		viewMenu.add(new CommandContributionItem(new CommandContributionItemParameter(getSite(), null,
 				"org.eclipse.oct.closeSession", CommandContributionItem.STYLE_PUSH)));
-
-		followImage = createFollowImage(parent.getDisplay());
-		fileImage = PlatformUI.getWorkbench().getSharedImages().getImage(ISharedImages.IMG_OBJ_FILE);
-		followToolbarAction = new Action("Follow", IAction.AS_CHECK_BOX) {
+		viewMenu.add(new Separator());
+		followPeerMenuAction = new Action("Follow Peer...") {
 			@Override
 			public void run() {
-				toggleToolbarFollow();
+				followPeerViaMenu();
 			}
 		};
-		followToolbarAction.setImageDescriptor(ImageDescriptor.createFromImage(followImage));
-		followToolbarAction.setEnabled(false);
-		followToolbarAction.setToolTipText("Follow");
+		followPeerMenuAction.setToolTipText("Follow a peer's cursor and open the files they navigate to");
+		followPeerMenuAction.setEnabled(false);
+		viewMenu.add(followPeerMenuAction);
 
-		IToolBarManager toolbar = getViewSite().getActionBars().getToolBarManager();
-		if (toolbar.find("org.eclipse.oct.hostSession") != null) {
-			toolbar.insertBefore("org.eclipse.oct.hostSession", followToolbarAction);
-		} else {
-			toolbar.add(followToolbarAction);
-		}
-		getViewSite().getActionBars().updateActionBars();
+		stopFollowingMenuAction = new Action("Stop Following") {
+			@Override
+			public void run() {
+				stopFollowingViaMenu();
+			}
+		};
+		stopFollowingMenuAction.setEnabled(false);
+		viewMenu.add(stopFollowingMenuAction);
+
+		checkboxCheckedImage = createCheckboxImage(parent.getDisplay(), true);
+		checkboxUncheckedImage = createCheckboxImage(parent.getDisplay(), false);
+		fileImage = PlatformUI.getWorkbench().getSharedImages().getImage(ISharedImages.IMG_OBJ_FILE);
 
 		root = new Composite(parent, SWT.NONE);
 		GridLayoutFactory.fillDefaults().applyTo(root);
@@ -249,7 +259,14 @@ public class SessionView extends ViewPart {
 
 			@Override
 			public Image getImage(Object element) {
-				return isFollowing((Participant) element) ? followImage : null;
+				Participant p = (Participant) element;
+				if (!p.canFollow()) {
+					return null;
+				}
+				// Only one row is ever checked: EditorManager tracks a single
+				// followingPeerId, so following a new peer automatically
+				// un-checks whichever row was checked before.
+				return isFollowing(p) ? checkboxCheckedImage : checkboxUncheckedImage;
 			}
 
 			@Override
@@ -307,9 +324,76 @@ public class SessionView extends ViewPart {
 			} else {
 				viewer.setInput(List.of());
 			}
-			updateToolbar(instance);
+			updateFollowMenuItems(instance);
 			root.layout(true, true);
 		});
+	}
+
+	private void updateFollowMenuItems(CollaborationInstance instance) {
+		boolean active = instance != null && instance.getEditorManager() != null;
+		if (followPeerMenuAction != null) {
+			followPeerMenuAction.setEnabled(active);
+		}
+		if (stopFollowingMenuAction != null) {
+			stopFollowingMenuAction.setEnabled(active && instance.getEditorManager().getFollowingPeerId() != null);
+		}
+	}
+
+	/**
+	 * Mirrors VS Code's {@code oct.followPeer} command invoked without a
+	 * pre-selected peer (e.g. from the Command Palette): shows a picker of
+	 * every other connected peer, then follows whichever one is chosen. Skips
+	 * the picker entirely when there is only one possible peer to follow.
+	 */
+	private void followPeerViaMenu() {
+		CollaborationInstance inst = findActiveInstance(SessionService.getInstance());
+		if (inst == null || inst.getEditorManager() == null) {
+			return;
+		}
+		List<Peer> candidates = new ArrayList<>();
+		if (!inst.isHost && inst.host != null) {
+			candidates.add(inst.host);
+		}
+		for (Peer guest : inst.guests) {
+			if (inst.identity == null || guest.id == null || !guest.id.equals(inst.identity.id)) {
+				candidates.add(guest);
+			}
+		}
+		if (candidates.isEmpty()) {
+			return;
+		}
+		Peer target;
+		if (candidates.size() == 1) {
+			target = candidates.get(0);
+		} else {
+			ListDialog dialog = new ListDialog(getSite().getShell());
+			dialog.setTitle("Follow Peer");
+			dialog.setMessage("Select a peer to follow:");
+			dialog.setContentProvider(ArrayContentProvider.getInstance());
+			dialog.setLabelProvider(new LabelProvider() {
+				@Override
+				public String getText(Object element) {
+					return peerName((Peer) element);
+				}
+			});
+			dialog.setInput(candidates);
+			if (dialog.open() != Window.OK) {
+				return;
+			}
+			Object[] result = dialog.getResult();
+			if (result == null || result.length == 0 || !(result[0] instanceof Peer selected)) {
+				return;
+			}
+			target = selected;
+		}
+		inst.getEditorManager().followPeer(target.id);
+	}
+
+	private void stopFollowingViaMenu() {
+		CollaborationInstance inst = findActiveInstance(SessionService.getInstance());
+		if (inst != null && inst.getEditorManager() != null) {
+			inst.getEditorManager().stopFollowing();
+		}
 	}
 
 	private static String displayWorkspaceName(CollaborationInstance instance) {
@@ -365,51 +449,6 @@ public class SessionView extends ViewPart {
 				viewer.getTable().setSelection(rows.indexOf(p));
 				return;
 			}
-		}
-	}
-
-	private void updateToolbar(CollaborationInstance instance) {
-		if (followToolbarAction == null) {
-			return;
-		}
-		if (instance == null || instance.getEditorManager() == null) {
-			followToolbarAction.setEnabled(false);
-			followToolbarAction.setChecked(false);
-			followToolbarAction.setToolTipText("Follow");
-			getViewSite().getActionBars().updateActionBars();
-			return;
-		}
-		EditorManager em = instance.getEditorManager();
-		followToolbarAction.setEnabled(true);
-		if (instance.isHost) {
-			followToolbarAction.setChecked(em.isFollowGuestSelection());
-			followToolbarAction.setToolTipText("Follow guest editors — open and activate files they open");
-		} else {
-			boolean following = em.getFollowingPeerId() != null;
-			followToolbarAction.setChecked(following);
-			followToolbarAction.setToolTipText(following ? "Stop following" : "Follow the host");
-		}
-		getViewSite().getActionBars().updateActionBars();
-	}
-
-	private void toggleToolbarFollow() {
-		CollaborationInstance inst = findActiveInstance(SessionService.getInstance());
-		if (inst == null || inst.getEditorManager() == null) {
-			return;
-		}
-		EditorManager em = inst.getEditorManager();
-		if (inst.isHost) {
-			em.setFollowGuestSelection(!em.isFollowGuestSelection());
-			return;
-		}
-		if (viewer.getStructuredSelection().getFirstElement() instanceof Participant p && p.canFollow()) {
-			toggleFollow(p);
-			return;
-		}
-		if (em.getFollowingPeerId() != null) {
-			em.stopFollowing();
-		} else if (inst.host != null) {
-			em.followPeer(inst.host.id);
 		}
 	}
 
@@ -482,7 +521,7 @@ public class SessionView extends ViewPart {
 		return svc.getAllInstances().values().stream().findFirst().orElse(null);
 	}
 
-	private static Image createFollowImage(Display display) {
+	private static Image createCheckboxImage(Display display, boolean checked) {
 		Image img = new Image(display, 16, 16);
 		GC gc = new GC(img);
 		try {
@@ -490,11 +529,13 @@ public class SessionView extends ViewPart {
 			gc.fillRectangle(0, 0, 16, 16);
 			gc.setAntialias(SWT.ON);
 			gc.setForeground(display.getSystemColor(SWT.COLOR_WIDGET_FOREGROUND));
-			gc.setLineWidth(2);
-			gc.drawArc(2, 2, 11, 11, 50, 260);
-			int[] arrow = { 12, 1, 15, 5, 10, 5 };
-			gc.setBackground(display.getSystemColor(SWT.COLOR_WIDGET_FOREGROUND));
-			gc.fillPolygon(arrow);
+			gc.setLineWidth(1);
+			gc.drawRectangle(3, 3, 9, 9);
+			if (checked) {
+				gc.setLineWidth(2);
+				gc.drawLine(4, 8, 6, 10);
+				gc.drawLine(6, 10, 11, 4);
+			}
 		} finally {
 			gc.dispose();
 		}
@@ -526,8 +567,11 @@ public class SessionView extends ViewPart {
 		if (roleFont != null && !roleFont.isDisposed()) {
 			roleFont.dispose();
 		}
-		if (followImage != null && !followImage.isDisposed()) {
-			followImage.dispose();
+		if (checkboxCheckedImage != null && !checkboxCheckedImage.isDisposed()) {
+			checkboxCheckedImage.dispose();
+		}
+		if (checkboxUncheckedImage != null && !checkboxUncheckedImage.isDisposed()) {
+			checkboxUncheckedImage.dispose();
 		}
 		for (Image dot : colorDots.values()) {
 			if (!dot.isDisposed()) {

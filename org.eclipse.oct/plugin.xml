@@ -41,7 +41,7 @@
    <extension point="org.eclipse.ui.menus">
        <!-- OCT Session View toolbar -->
        <menuContribution locationURI="toolbar:org.eclipse.oct.sessionView">
-          <command commandId="org.eclipse.oct.hostSession" icon="icons/share.png" tooltip="Host Session" style="push"/>
+          <command commandId="org.eclipse.oct.hostSession" icon="icons/hosting.png" tooltip="Host Session" style="push"/>
           <command commandId="org.eclipse.oct.joinSession" icon="icons/collab.png" tooltip="Join Session" style="push"/>
           <separator name="org.eclipse.oct.sessionViewSep1"/>
            <command commandId="org.eclipse.oct.showSessionInfo" icon="platform:/plugin/org.eclipse.ui/icons/full/obj16/info_tsk.png" tooltip="Show Session Info / Copy Invitation" style="push"/>

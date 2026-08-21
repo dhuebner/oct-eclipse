@@ -9,7 +9,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.eclipse.jface.action.Action;
 import org.eclipse.jface.action.IMenuManager;
 import org.eclipse.jface.action.Separator;
 import org.eclipse.jface.layout.GridDataFactory;
@@ -20,10 +19,8 @@ import org.eclipse.jface.viewers.ColumnLabelProvider;
 import org.eclipse.jface.viewers.ColumnViewerToolTipSupport;
 import org.eclipse.jface.viewers.ColumnWeightData;
 import org.eclipse.jface.viewers.IStructuredSelection;
-import org.eclipse.jface.viewers.LabelProvider;
 import org.eclipse.jface.viewers.TableViewer;
 import org.eclipse.jface.viewers.TableViewerColumn;
-import org.eclipse.jface.window.Window;
 import org.eclipse.oct.editor.EditorManager;
 import org.eclipse.oct.internal.CollaborationInstance;
 import org.eclipse.oct.internal.SessionService;
@@ -41,13 +38,13 @@ import org.eclipse.swt.widgets.Table;
 import org.eclipse.swt.widgets.TableItem;
 import org.eclipse.ui.ISharedImages;
 import org.eclipse.ui.PlatformUI;
-import org.eclipse.ui.dialogs.ListDialog;
 import org.eclipse.ui.menus.CommandContributionItem;
 import org.eclipse.ui.menus.CommandContributionItemParameter;
 import org.eclipse.ui.part.ViewPart;
 
 /**
- * Session view: participants in a table with color, role, file, and follow icons.
+ * Session view: participants in a table with color, role, file, and follow
+ * icons.
  */
 public class SessionView extends ViewPart {
 
@@ -65,13 +62,6 @@ public class SessionView extends ViewPart {
 	private Image checkboxUncheckedImage;
 	private Image fileImage;
 	private final Map<RGB, Image> colorDots = new HashMap<>();
-	/**
-	 * Mirrors VS Code's {@code oct.followPeer} / {@code oct.stopFollowPeer}
-	 * command palette entries — available to host and guest alike (VS Code has
-	 * no host-only "auto-follow any guest" mode).
-	 */
-	private Action followPeerMenuAction;
-	private Action stopFollowingMenuAction;
 
 	private Runnable unsubscribeSessionCreated;
 	private Runnable unsubscribeSessionClosed;
@@ -87,28 +77,10 @@ public class SessionView extends ViewPart {
 				"org.eclipse.oct.hostSession", CommandContributionItem.STYLE_PUSH)));
 		viewMenu.add(new CommandContributionItem(new CommandContributionItemParameter(getSite(), null,
 				"org.eclipse.oct.joinSession", CommandContributionItem.STYLE_PUSH)));
+
 		viewMenu.add(new Separator());
 		viewMenu.add(new CommandContributionItem(new CommandContributionItemParameter(getSite(), null,
 				"org.eclipse.oct.closeSession", CommandContributionItem.STYLE_PUSH)));
-		viewMenu.add(new Separator());
-		followPeerMenuAction = new Action("Follow Peer...") {
-			@Override
-			public void run() {
-				followPeerViaMenu();
-			}
-		};
-		followPeerMenuAction.setToolTipText("Follow a peer's cursor and open the files they navigate to");
-		followPeerMenuAction.setEnabled(false);
-		viewMenu.add(followPeerMenuAction);
-
-		stopFollowingMenuAction = new Action("Stop Following") {
-			@Override
-			public void run() {
-				stopFollowingViaMenu();
-			}
-		};
-		stopFollowingMenuAction.setEnabled(false);
-		viewMenu.add(stopFollowingMenuAction);
 
 		viewMenu.add(new Separator());
 		viewMenu.add(new CommandContributionItem(new CommandContributionItemParameter(getSite(), null,
@@ -293,8 +265,8 @@ public class SessionView extends ViewPart {
 			}
 		});
 		viewer.addDoubleClickListener(e -> {
-			if (e.getSelection() instanceof IStructuredSelection sel
-					&& sel.getFirstElement() instanceof Participant p && p.canFollow()) {
+			if (e.getSelection() instanceof IStructuredSelection sel && sel.getFirstElement() instanceof Participant p
+					&& p.canFollow()) {
 				toggleFollow(p);
 			}
 		});
@@ -328,76 +300,8 @@ public class SessionView extends ViewPart {
 			} else {
 				viewer.setInput(List.of());
 			}
-			updateFollowMenuItems(instance);
 			root.layout(true, true);
 		});
-	}
-
-	private void updateFollowMenuItems(CollaborationInstance instance) {
-		boolean active = instance != null && instance.getEditorManager() != null;
-		if (followPeerMenuAction != null) {
-			followPeerMenuAction.setEnabled(active);
-		}
-		if (stopFollowingMenuAction != null) {
-			stopFollowingMenuAction.setEnabled(active && instance.getEditorManager().getFollowingPeerId() != null);
-		}
-	}
-
-	/**
-	 * Mirrors VS Code's {@code oct.followPeer} command invoked without a
-	 * pre-selected peer (e.g. from the Command Palette): shows a picker of
-	 * every other connected peer, then follows whichever one is chosen. Skips
-	 * the picker entirely when there is only one possible peer to follow.
-	 */
-	private void followPeerViaMenu() {
-		CollaborationInstance inst = findActiveInstance(SessionService.getInstance());
-		if (inst == null || inst.getEditorManager() == null) {
-			return;
-		}
-		List<Peer> candidates = new ArrayList<>();
-		if (!inst.isHost && inst.host != null) {
-			candidates.add(inst.host);
-		}
-		for (Peer guest : inst.guests) {
-			if (inst.identity == null || guest.id == null || !guest.id.equals(inst.identity.id)) {
-				candidates.add(guest);
-			}
-		}
-		if (candidates.isEmpty()) {
-			return;
-		}
-		Peer target;
-		if (candidates.size() == 1) {
-			target = candidates.get(0);
-		} else {
-			ListDialog dialog = new ListDialog(getSite().getShell());
-			dialog.setTitle("Follow Peer");
-			dialog.setMessage("Select a peer to follow:");
-			dialog.setContentProvider(ArrayContentProvider.getInstance());
-			dialog.setLabelProvider(new LabelProvider() {
-				@Override
-				public String getText(Object element) {
-					return peerName((Peer) element);
-				}
-			});
-			dialog.setInput(candidates);
-			if (dialog.open() != Window.OK) {
-				return;
-			}
-			Object[] result = dialog.getResult();
-			if (result == null || result.length == 0 || !(result[0] instanceof Peer selected)) {
-				return;
-			}
-			target = selected;
-		}
-		inst.getEditorManager().followPeer(target.id);
-	}
-
-	private void stopFollowingViaMenu() {
-		CollaborationInstance inst = findActiveInstance(SessionService.getInstance());
-		if (inst != null && inst.getEditorManager() != null) {
-			inst.getEditorManager().stopFollowing();
-		}
 	}
 
 	private static String displayWorkspaceName(CollaborationInstance instance) {

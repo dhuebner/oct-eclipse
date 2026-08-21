@@ -22,10 +22,6 @@ public class PeerAnnotation extends Annotation {
 	private final RGB color;
 	private volatile boolean showName;
 
-	public PeerAnnotation(String type, String peerId, RGB color) {
-		this(type, peerId, peerId, color, false);
-	}
-
 	public PeerAnnotation(String type, String peerId, String peerName, RGB color, boolean showName) {
 		super(type, false, peerName != null ? peerName : peerId);
 		this.peerId = peerId;

@@ -198,7 +198,7 @@ public final class TestPeer implements AutoCloseable {
 		// backs every session so partOpened/DocumentSyncListener/seed-sync gating
 		// (EditorManager.confirmSeedThenEnableUpdates) run for real, not just the
 		// raw octService() RPCs exercised elsewhere in this suite.
-		this.editorManager = new EditorManager(octService(), project, /* isHost */ true);
+		this.editorManager = new EditorManager(octService(), project, /* isHost */ true, instance.peerColors);
 		this.editorManager.setPeerNameLookup(instance::peerDisplayName);
 		this.instance.setEditorManager(editorManager);
 		onSessionCreated.fire(instance);

@@ -110,6 +110,10 @@ public class SessionView extends ViewPart {
 		stopFollowingMenuAction.setEnabled(false);
 		viewMenu.add(stopFollowingMenuAction);
 
+		viewMenu.add(new Separator());
+		viewMenu.add(new CommandContributionItem(new CommandContributionItemParameter(getSite(), null,
+				"org.eclipse.oct.logout", CommandContributionItem.STYLE_PUSH)));
+
 		checkboxCheckedImage = createCheckboxImage(parent.getDisplay(), true);
 		checkboxUncheckedImage = createCheckboxImage(parent.getDisplay(), false);
 		fileImage = PlatformUI.getWorkbench().getSharedImages().getImage(ISharedImages.IMG_OBJ_FILE);

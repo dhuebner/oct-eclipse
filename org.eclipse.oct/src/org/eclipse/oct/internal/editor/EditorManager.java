@@ -117,10 +117,10 @@ public class EditorManager implements IPartListener2 {
 	private volatile boolean followGuestSelection = false;
 	private boolean isHost;
 
-	public EditorManager(OCTService remoteService, IProject project, boolean isHost) {
+	public EditorManager(OCTService remoteService, IProject project, boolean isHost, PeerColors peerColors) {
 		this.remoteService = remoteService;
 		this.project = project;
-		this.peerColors = new PeerColors();
+		this.peerColors = peerColors;
 		this.isHost = isHost;
 		registerPartListener();
 	}

@@ -35,7 +35,8 @@ public class PeerCursorDrawingStrategy implements IDrawingStrategy {
 
 	private final Map<RGB, Color> colorCache = new HashMap<>();
 	private Font nameFont;
-	private Color nameTextColor;
+	private Color blackNameText;
+	private Color whiteNameText;
 
 	@Override
 	public void draw(Annotation annotation, GC gc, StyledText textWidget, int offset, int length, Color color) {
@@ -76,7 +77,7 @@ public class PeerCursorDrawingStrategy implements IDrawingStrategy {
 		Color previousFg = gc.getForeground();
 		try {
 			gc.setFont(nameFont(textWidget));
-			gc.setForeground(nameTextColor(textWidget));
+			gc.setForeground(nameTextColor(textWidget, peer.getColor()));
 			gc.setBackground(peerColor);
 
 			Point extent = gc.textExtent(peer.getPeerName());
@@ -122,11 +123,34 @@ public class PeerCursorDrawingStrategy implements IDrawingStrategy {
 		return nameFont;
 	}
 
-	private Color nameTextColor(StyledText widget) {
-		if (nameTextColor == null || nameTextColor.isDisposed()) {
-			nameTextColor = new Color(widget.getDisplay(), 0, 0, 0);
+	/**
+	 * Picks black or white text depending on the perceived brightness of
+	 * {@code backgroundColor} (the peer's pill/tag fill), so the name stays
+	 * readable regardless of how dark or light that peer's assigned color is
+	 * (e.g. black text on a dark navy peer color was previously unreadable).
+	 * Same approach VS Code Live Share / GitHub use for colored badges.
+	 */
+	private Color nameTextColor(StyledText widget, RGB backgroundColor) {
+		if (isPerceivedLight(backgroundColor)) {
+			if (blackNameText == null || blackNameText.isDisposed()) {
+				blackNameText = new Color(widget.getDisplay(), 0, 0, 0);
+			}
+			return blackNameText;
 		}
-		return nameTextColor;
+		if (whiteNameText == null || whiteNameText.isDisposed()) {
+			whiteNameText = new Color(widget.getDisplay(), 255, 255, 255);
+		}
+		return whiteNameText;
+	}
+
+	/**
+	 * ITU-R BT.601 perceptual luminance. Threshold slightly above the 0.5
+	 * midpoint since black text reads a bit better than white at equal
+	 * contrast, matching common badge-coloring heuristics.
+	 */
+	private static boolean isPerceivedLight(RGB rgb) {
+		double luminance = (0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue) / 255.0;
+		return luminance > 0.6;
 	}
 
 	private Color getColor(StyledText widget, RGB rgb) {
@@ -144,9 +168,13 @@ public class PeerCursorDrawingStrategy implements IDrawingStrategy {
 			nameFont.dispose();
 		}
 		nameFont = null;
-		if (nameTextColor != null && !nameTextColor.isDisposed()) {
-			nameTextColor.dispose();
+		if (blackNameText != null && !blackNameText.isDisposed()) {
+			blackNameText.dispose();
 		}
-		nameTextColor = null;
+		blackNameText = null;
+		if (whiteNameText != null && !whiteNameText.isDisposed()) {
+			whiteNameText.dispose();
+		}
+		whiteNameText = null;
 	}
 }

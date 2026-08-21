@@ -4,12 +4,16 @@
  */
 package org.eclipse.oct.internal.editor;
 
+import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -72,7 +76,6 @@ public class EditorManager implements IPartListener2 {
 	/** Max time to wait for an initial content seed to confirm before giving up. */
 	private static final long SEED_SYNC_TIMEOUT_MS = 10_000;
 	private static final long SEED_SYNC_POLL_INTERVAL_MS = 100;
-	/** Same window VS Code uses ({@code Date.now() - lastUpdated < 1900}). */
 	private static final int NAME_TAG_VISIBLE_MS = 1900;
 
 	private final OCTService remoteService;
@@ -82,8 +85,11 @@ public class EditorManager implements IPartListener2 {
 
 	/** Per editor-path state */
 	private final Map<String, EditorState> editorStates = new HashMap<>();
-	/** Bumps on each selection update so a stale hide-timer cannot clear a fresh name tag. */
-	private final Map<EditorState, Integer> nameTagEpoch = new java.util.IdentityHashMap<>();
+	/**
+	 * Bumps on each selection update so a stale hide-timer cannot clear a fresh
+	 * name tag.
+	 */
+	private final Map<EditorState, Integer> nameTagEpoch = new IdentityHashMap<>();
 
 	/**
 	 * Paths whose content has already been pushed to Yjs without an editor being
@@ -92,7 +98,7 @@ public class EditorManager implements IPartListener2 {
 	 * openDocument always does a full delete+insert, so a second send is a needless
 	 * full-document replace that marks other peers' editors dirty.
 	 */
-	private final java.util.Set<String> seededPaths = new java.util.HashSet<>();
+	private final Set<String> seededPaths = new HashSet<>();
 
 	private final AtomicBoolean disposed = new AtomicBoolean(false);
 
@@ -119,15 +125,15 @@ public class EditorManager implements IPartListener2 {
 	}
 
 	/**
-	 * Resolves a peer id to the display name shown on the cursor name tag.
-	 * Defaults to the id itself when unset (tests / peers not yet in init).
+	 * Resolves a peer id to the display name shown on the cursor name tag. Defaults
+	 * to the id itself when unset (tests / peers not yet in init).
 	 */
 	public void setPeerNameLookup(Function<String, String> peerNameLookup) {
 		this.peerNameLookup = peerNameLookup != null ? peerNameLookup : id -> id;
 	}
 
 	private void registerPartListener() {
-		Display.getDefault().asyncExec(() -> {
+		Display.getDefault().syncExec(() -> {
 			if (!PlatformUI.isWorkbenchRunning()) {
 				return;
 			}
@@ -152,10 +158,7 @@ public class EditorManager implements IPartListener2 {
 			return;
 		}
 		IFile file = editor.getEditorInput().getAdapter(IFile.class);
-		if (file == null || !file.exists()) {
-			return;
-		}
-		if (!file.getProject().equals(project)) {
+		if (file == null || !file.exists() || !file.getProject().equals(project)) {
 			// ignore files from other projects
 			return;
 		}
@@ -200,26 +203,27 @@ public class EditorManager implements IPartListener2 {
 	}
 
 	/**
-	 * {@code awareness/openDocument} is fire-and-forget, and for non-host peers
-	 * the content it carries is applied to the shared Yjs document asynchronously
-	 * (the local replica only catches up once the seed round-trips through the
-	 * OCT server — see {@code CollaborationInstance.registerYjsObject} in
-	 * open-collaboration-service-process, which discards a guest's own
-	 * {@code text} argument and simply notifies the host). If a local edit is
-	 * sent before that sync lands, its offset is computed against an
-	 * empty/stale replica; Yjs silently clamps out-of-range offsets instead of
-	 * rejecting them, corrupting the edit for every peer.
+	 * {@code awareness/openDocument} is fire-and-forget, and for non-host peers the
+	 * content it carries is applied to the shared Yjs document asynchronously (the
+	 * local replica only catches up once the seed round-trips through the OCT
+	 * server — see {@code CollaborationInstance.registerYjsObject} in
+	 * open-collaboration-service-process, which discards a guest's own {@code text}
+	 * argument and simply notifies the host). If a local edit is sent before that
+	 * sync lands, its offset is computed against an empty/stale replica; Yjs
+	 * silently clamps out-of-range offsets instead of rejecting them, corrupting
+	 * the edit for every peer.
 	 *
-	 * <p>To close that race, {@code DocumentSyncListener} queues local edits
-	 * made before its seed confirms instead of sending them (see
+	 * <p>
+	 * To close that race, {@code DocumentSyncListener} queues local edits made
+	 * before its seed confirms instead of sending them (see
 	 * {@link DocumentSyncListener#enableAndFlush()}) and only flushes them here,
 	 * once {@code awareness/getDocumentContent} confirms this peer's own replica
-	 * already holds {@code expectedContent}. Runs off the UI thread since it
-	 * polls with blocking gets; if the seed still hasn't confirmed after
-	 * {@link #SEED_SYNC_TIMEOUT_MS}, updates are enabled anyway (best effort) so
-	 * a slow/unreachable server doesn't permanently freeze the editor's outgoing
-	 * sync — logged as a warning since it means edits until it also settles may
-	 * still race.
+	 * already holds {@code expectedContent}. Runs off the UI thread since it polls
+	 * with blocking gets; if the seed still hasn't confirmed after
+	 * {@link #SEED_SYNC_TIMEOUT_MS}, updates are enabled anyway (best effort) so a
+	 * slow/unreachable server doesn't permanently freeze the editor's outgoing sync
+	 * — logged as a warning since it means edits until it also settles may still
+	 * race.
 	 */
 	private void confirmSeedThenEnableUpdates(String octPath, String expectedContent) {
 		String normalizedExpected = expectedContent.replace("\r\n", "\n");
@@ -266,18 +270,17 @@ public class EditorManager implements IPartListener2 {
 	}
 
 	/**
-	 * Resolve an incoming protocol path to an {@link IFile}. Host: workspace
-	 * root ({@code sharedRoot} is the project name). Guest: temp project
-	 * ({@code sharedRoot} is a linked folder). Returns {@code null} if the
-	 * resource does not exist — callers must not NPE on that.
+	 * Resolve an incoming protocol path to an {@link IFile}. Host: workspace root
+	 * ({@code sharedRoot} is the project name). Guest: temp project
+	 * ({@code sharedRoot} is a linked folder). Returns {@code null} if the resource
+	 * does not exist — callers must not NPE on that.
 	 */
 	private IFile eclipseFile(String octPath) {
 		String normalized = OctPaths.normalize(octPath);
 		if (normalized.isEmpty()) {
 			return null;
 		}
-		IFile iFile = isHost
-				? project.getWorkspace().getRoot().getFile(new Path(normalized))
+		IFile iFile = isHost ? project.getWorkspace().getRoot().getFile(new Path(normalized))
 				: project.getFile(new Path(normalized));
 		return iFile.exists() ? iFile : null;
 	}
@@ -498,9 +501,9 @@ public class EditorManager implements IPartListener2 {
 
 	/**
 	 * Guest editors load from EFS before Yjs is seeded. The seed then arrives as
-	 * insert-at-0 of the <em>entire</em> current buffer. Applying that prepends
-	 * and duplicates. A one-character insert at 0 (typing at the start) must
-	 * still go through — {@code "2"} into {@code "1"} is a real edit.
+	 * insert-at-0 of the <em>entire</em> current buffer. Applying that prepends and
+	 * duplicates. A one-character insert at 0 (typing at the start) must still go
+	 * through — {@code "2"} into {@code "1"} is a real edit.
 	 */
 	static boolean isSeedEcho(IDocument doc, int start, int length, String text) {
 		if (length != 0 || start != 0 || text == null || text.length() <= 1) {
@@ -597,7 +600,7 @@ public class EditorManager implements IPartListener2 {
 			}
 
 			EditorState existing = findEditorState(path);
-			if ((existing != null) || seededPaths.contains(documentPath)) {
+			if ((existing != null) || seededPaths.contains(path)) {
 				// Already pushed once via the no-UI path below (e.g. a second
 				// guest opening the same file before the host does) — sending
 				// openDocument again would be a needless full-document replace.
@@ -607,9 +610,11 @@ public class EditorManager implements IPartListener2 {
 				return;
 			}
 
+			seededPaths.add(path);
+
 			if (followGuestSelection) {
 				// Opens the part, which triggers partOpened() -> first-time
-				// registration -> real content sent exactly once.
+				// registration -> content already seeded, so no resend happens.
 				activateEditor(file);
 			}
 		});
@@ -625,7 +630,7 @@ public class EditorManager implements IPartListener2 {
 	}
 
 	private static String readFileContent(IFile file) throws Exception {
-		try (java.io.InputStream is = file.getContents()) {
+		try (InputStream is = file.getContents()) {
 			return new String(is.readAllBytes(), StandardCharsets.UTF_8).replace("\r\n", "\n");
 		}
 	}
@@ -737,9 +742,9 @@ public class EditorManager implements IPartListener2 {
 
 	/**
 	 * Guest-side: the host already persisted the file. Mark this editor clean
-	 * without {@code doSave()} — that uses overwrite=false and would prompt
-	 * "file has changed on the file system" after {@code refreshLocal} updates
-	 * the oct:// stamp, and would also echo {@code writeFile} back to the host.
+	 * without {@code doSave()} — that uses overwrite=false and would prompt "file
+	 * has changed on the file system" after {@code refreshLocal} updates the oct://
+	 * stamp, and would also echo {@code writeFile} back to the host.
 	 */
 	private void acceptRemoteSave(EditorState state) throws CoreException {
 		IDocumentProvider provider = state.editor.getDocumentProvider();

@@ -3,7 +3,7 @@
 Eclipse plugin for Open Collaboration Tools (OCT): live-shares an Eclipse
 workspace with peers via a native `oct-service-process` subprocess bridging to
 the `open-collaboration-tools` TypeScript protocol implementation. Java 21,
-Maven 3.9+/Tycho 4.0.8, Eclipse 2025-03 target platform.
+Maven 3.9+/Tycho 5.0.4, Eclipse 2026-03 target platform.
 
 **Requires a sibling checkout of `open-collaboration-tools`** (defaults to
 `../open-collaboration-tools`, override with `-Doct.project.path=...`) and
@@ -16,24 +16,34 @@ Run from the repo root.
 ```sh
 mvn install -DskipTests               # one-time reactor install, ~25s fresh — needed before any single-module command below
 mvn clean verify                      # full build + native executable + all tests, ~50s
-mvn -pl org.eclipse.oct.tests -am -Dtycho.mode=maven test -Dtest=<ClassName>   # single test class, ~9s once installed
+mvn -pl org.eclipse.oct.tests -am -Dtycho.mode=maven integration-test -Dtest=<ClassName>   # single test class, ~9s once installed
 ```
 
 - There is no separate lint/typecheck command — `mvn clean verify` (Tycho
-  compiler + PDE manifest checks) is the full verification.
-- **`mvn clean verify` currently fails on a fresh checkout** (verified
-  2026-09-11): ~29 integration-test errors in `org.eclipse.oct.tests`, two
-  distinct causes — a JUnit Jupiter version mismatch (`AbstractMethodError` in
-  parameterized tests) and `JsonRpcException: Stream closed` from the native
-  `oct-service-process` in handshake/awareness tests. Not yet root-caused;
-  don't assume a red run means your change broke something until you've
-  compared against a clean-checkout baseline run. Tracked as an open item —
-  see [docs/exec-plans/](docs/exec-plans/active/).
+  compiler + PDE manifest checks) is the full verification, and it currently
+  passes cleanly on a fresh checkout (verified 2026-09-11, 87/87 tests).
+- The single-test form runs the `integration-test` phase, not `test`: since
+  Tycho 5.0 the `tycho-surefire-plugin:test` goal (it launches an OSGi runtime
+  to run tests, so Tycho classifies it as an integration test) is bound to
+  `integration-test` rather than `test` — `-Dtycho.mode=maven test` silently
+  runs zero tests under this Tycho version.
 - The `-Dtycho.mode=maven` single-test form needs `org.eclipse.oct` already
   built and installed to the local `.m2` repo (via `mvn install -DskipTests`
   or a prior full build) — it fails with "Missing requirement: osgi.bundle;
   org.eclipse.oct" otherwise, since Tycho resolves module deps from the
   reactor/local repo, not the workspace.
+- Eclipse 2026-03 mirrors a composite p2 repo carrying both a legacy JUnit 5
+  bundle set (`junit-jupiter-*` 5.14.3 / `junit-platform-*` 1.14.3) and the
+  current JUnit 6 set (everything at 6.0.3) side by side. `org.eclipse.oct.target`
+  pins the JUnit units to the 6.0.3 set explicitly (a `version="0.0.0"` range
+  lets p2 mix engine/launcher versions across the two sets depending on mirror
+  sync timing, producing an `AbstractMethodError` from `ExtensionContext`).
+  `org.eclipse.oct.tests`'s `MANIFEST.MF` `Require-Bundle` range and its
+  `tycho-surefire-plugin` `providerHint` (`junit6`) must stay in lockstep with
+  that pin — Tycho's JUnit provider fragments are version-specific
+  (`org.eclipse.tycho.surefire.junit5` only imports `org.junit.jupiter.api`
+  `[5,6)`, `.junit6` imports `[6,7)`), so a `providerHint` mismatched to the
+  target's actual Jupiter major version reproduces the same error.
 
 ## Why and where
 
@@ -45,7 +55,7 @@ mvn -pl org.eclipse.oct.tests -am -Dtycho.mode=maven test -Dtest=<ClassName>   #
   and drive the plugin's actual internal classes.
 - `org.eclipse.oct.feature/`, `org.eclipse.oct.repository/` — Eclipse feature
   and p2 update site packaging.
-- `org.eclipse.oct.target/` — the pinned target platform (Eclipse 2025-03).
+- `org.eclipse.oct.target/` — the pinned target platform (Eclipse 2026-03).
 - See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the package layout
   inside `org.eclipse.oct/src` and the host/guest role split.
 

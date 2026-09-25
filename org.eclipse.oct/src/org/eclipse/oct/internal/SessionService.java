@@ -317,7 +317,7 @@ public class SessionService {
 
 		WorkspaceFileSystemService wfs = new WorkspaceFileSystemService(project);
 		CollaborationInstance instance = new CollaborationInstance(process.getOctService(), project, sessionData,
-				isHost);
+				isHost, serverUrl);
 		instance.setWorkspaceFileSystem(wfs);
 
 		// Wire EditorManager

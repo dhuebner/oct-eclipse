@@ -54,6 +54,7 @@ public final class TestPeer implements AutoCloseable {
 
 	private final Role role;
 	private final String username;
+	private final String serverUrl;
 	private final EventEmitter<CollaborationInstance> onSessionCreated = new EventEmitter<>();
 	private final TestOCTMessageHandler octHandler;
 	private final TestFileSystemMessageHandler fsHandler;
@@ -69,6 +70,7 @@ public final class TestPeer implements AutoCloseable {
 	public TestPeer(String serverUrl, String username, Role role) {
 		this.role = role;
 		this.username = username;
+		this.serverUrl = serverUrl;
 		this.octHandler = new TestOCTMessageHandler(serverUrl, onSessionCreated, username);
 		this.fsHandler = new TestFileSystemMessageHandler(serverUrl, onSessionCreated);
 		// Bypass AuthenticationService/Equinox secure storage: tests always perform
@@ -195,7 +197,7 @@ public final class TestPeer implements AutoCloseable {
 	// ---- Wiring ----
 
 	private void wireCollaborationInstance() {
-		this.instance = new CollaborationInstance(remoteProxy, project, sessionData, /* isHost */ true);
+		this.instance = new CollaborationInstance(remoteProxy, project, sessionData, /* isHost */ true, serverUrl);
 		this.instance.setWorkspaceFileSystem(workspaceFs);
 		// Mirrors production SessionService.sessionCreated: a real EditorManager
 		// backs every session so partOpened/DocumentSyncListener/seed-sync gating

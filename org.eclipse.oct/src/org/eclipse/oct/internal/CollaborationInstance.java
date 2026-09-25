@@ -52,6 +52,15 @@ public class CollaborationInstance {
 	public final SessionData sessionData;
 	public final boolean isHost;
 
+	/**
+	 * The server URL this session actually connected to — resolved from the
+	 * room token for a guest (which may differ from that guest's own default
+	 * server preference), or the preference used to host for a host. Use this,
+	 * not {@code OCTSettings.getDefaultServerURL()}, whenever displaying or
+	 * sharing this session's URL.
+	 */
+	public final String serverUrl;
+
 	// CopyOnWriteArrayList: peerJoined/peerLeft/initPeers mutate this from the
 	// JSON-RPC reader thread while SessionView.participants iterates it on the
 	// UI thread. A plain ArrayList risked a ConcurrentModificationException.
@@ -73,11 +82,12 @@ public class CollaborationInstance {
 	private final Map<String, long[]> lastPropagatedSave = new ConcurrentHashMap<>();
 
 	public CollaborationInstance(BaseMessageHandler.BaseRemoteInterface remoteInterface, IProject project,
-			SessionData sessionData, boolean isHost) {
+			SessionData sessionData, boolean isHost, String serverUrl) {
 		this.remoteInterface = remoteInterface;
 		this.project = project;
 		this.sessionData = sessionData;
 		this.isHost = isHost;
+		this.serverUrl = serverUrl;
 		LOG.info("Initialized collaboration instance for project: " + project.getName());
 	}
 

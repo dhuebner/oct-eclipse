@@ -9,6 +9,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -103,12 +104,12 @@ public class ServiceProcess implements AutoCloseable {
 				currentProcess = null;
 			});
 
-			List<Class<?>> remoteInterfaces = new java.util.ArrayList<>();
+			List<Class<?>> remoteInterfaces = new ArrayList<>();
 			for (BaseMessageHandler h : messageHandlers) {
 				remoteInterfaces.add(h.getRemoteInterface());
 			}
 
-			List<Object> localServices = new java.util.ArrayList<>(messageHandlers);
+			List<Object> localServices = new ArrayList<>(messageHandlers);
 
 			@SuppressWarnings({ "unchecked", "rawtypes" })
 			List<Class<? extends BaseMessageHandler.BaseRemoteInterface>> typedInterfaces = (List) remoteInterfaces;

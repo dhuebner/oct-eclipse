@@ -21,7 +21,7 @@ mvn -pl org.eclipse.oct.tests -am -Dtycho.mode=maven integration-test -Dtest=<Cl
 
 - There is no separate lint/typecheck command — `mvn clean verify` (Tycho
   compiler + PDE manifest checks) is the full verification, and it currently
-  passes cleanly on a fresh checkout (verified 2026-09-25, 101/101 tests).
+  passes cleanly on a fresh checkout (verified 2026-09-25, 103/103 tests).
 - The single-test command's timing depends heavily on what the class spins up:
   a pure unit-style class (e.g. `OctPathsTest`) runs in ~12s, but most
   integration classes launch a real `oct-service-process` and/or the PDE UI

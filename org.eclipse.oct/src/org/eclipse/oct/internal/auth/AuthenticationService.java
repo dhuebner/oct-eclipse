@@ -14,6 +14,7 @@ import org.eclipse.equinox.security.storage.SecurePreferencesFactory;
 import org.eclipse.equinox.security.storage.StorageException;
 import org.eclipse.jface.viewers.LabelProvider;
 import org.eclipse.jface.window.Window;
+import org.eclipse.oct.internal.SessionService;
 import org.eclipse.oct.prefs.OCTSettings;
 import org.eclipse.oct.protocol.AuthMetadata;
 import org.eclipse.oct.protocol.AuthProvider;
@@ -43,7 +44,7 @@ public class AuthenticationService {
 	 * Fires the server URL of an in-flight authentication when the user
 	 * aborts it: the provider chooser is cancelled, a {@link FormAuthDialog}
 	 * is closed/cancelled, or a {@link LoginBrowserDialog} is closed without
-	 * ever delivering a token. {@link org.eclipse.oct.internal.SessionService}
+	 * ever delivering a token. {@link SessionService}
 	 * subscribes for the lifetime of the connecting job so it can cancel the
 	 * matching {@code createRoom}/{@code joinRoom} future instead of leaving
 	 * it to time out.

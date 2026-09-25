@@ -4,12 +4,15 @@
  */
 package org.eclipse.oct.internal;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -29,8 +32,10 @@ import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.core.runtime.jobs.Job;
 import org.eclipse.jface.dialogs.MessageDialog;
+import org.eclipse.lsp4j.jsonrpc.ResponseErrorException;
 import org.eclipse.oct.editor.EditorManager;
 import org.eclipse.oct.internal.auth.AuthenticationService;
+import org.eclipse.oct.internal.fs.WorkspaceChangeListener;
 import org.eclipse.oct.internal.fs.WorkspaceFileSystemService;
 import org.eclipse.oct.internal.rpc.FileSystemMessageHandler;
 import org.eclipse.oct.internal.rpc.OCTMessageHandler;
@@ -94,7 +99,7 @@ public class SessionService {
 
 	/**
 	 * Associate an already-wired instance with a project so
-	 * {@link org.eclipse.oct.internal.fs.WorkspaceChangeListener} can find it.
+	 * {@link WorkspaceChangeListener} can find it.
 	 * Production {@link #sessionCreated} does this; tests that build a
 	 * {@link CollaborationInstance} via {@code TestPeer} must call this or
 	 * host saves never propagate.
@@ -181,14 +186,14 @@ public class SessionService {
 		// Support pasting a full room URL (format: serverUrl#roomId)
 		if (roomToken.contains("://")) {
 			try {
-				java.net.URI uri = new java.net.URI(roomToken);
+				URI uri = new URI(roomToken);
 				String fragment = uri.getFragment();
 				if (fragment != null && !fragment.isBlank()) {
-					String parsed = new java.net.URI(uri.getScheme(), uri.getAuthority(), "", null, null).toString();
+					String parsed = new URI(uri.getScheme(), uri.getAuthority(), "", null, null).toString();
 					serverUrl.set(OCTSettings.normalizeServerUrl(parsed));
 					roomToken = fragment;
 				}
-			} catch (java.net.URISyntaxException ignored) {
+			} catch (URISyntaxException ignored) {
 				// Not a valid URL, use token as-is
 			}
 		}
@@ -374,7 +379,7 @@ public class SessionService {
 	 * The OCT server reports transport failures (unreachable host, DNS
 	 * failure, connection refused) as a generic Node.js {@code TypeError:
 	 * fetch failed} nested inside a {@link
-	 * org.eclipse.lsp4j.jsonrpc.ResponseErrorException} message, so we detect
+	 * ResponseErrorException} message, so we detect
 	 * those patterns and name the server URL instead of surfacing the raw
 	 * exception text.
 	 */
@@ -382,7 +387,7 @@ public class SessionService {
 		if (e instanceof TimeoutException) {
 			return "Server " + serverUrl + " did not respond in time.";
 		}
-		if (e instanceof java.util.concurrent.CancellationException) {
+		if (e instanceof CancellationException) {
 			return "The connection attempt was cancelled.";
 		}
 		// Depth cap rather than a self-reference check: a cause chain that cycles

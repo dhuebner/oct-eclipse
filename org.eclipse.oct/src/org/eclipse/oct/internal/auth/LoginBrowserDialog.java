@@ -4,11 +4,15 @@
  */
 package org.eclipse.oct.internal.auth;
 
+import java.net.URI;
+
 import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.dialogs.IDialogConstants;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.SWTError;
 import org.eclipse.swt.browser.Browser;
+import org.eclipse.swt.browser.LocationAdapter;
+import org.eclipse.swt.browser.LocationEvent;
 import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
@@ -49,14 +53,14 @@ public class LoginBrowserDialog extends Dialog {
 			browser.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
 
 			// Listen for URL changes so we can detect authentication callbacks
-			browser.addLocationListener(new org.eclipse.swt.browser.LocationAdapter() {
+			browser.addLocationListener(new LocationAdapter() {
 				@Override
-				public void changed(org.eclipse.swt.browser.LocationEvent event) {
+				public void changed(LocationEvent event) {
 					String location = event.location;
 					// Detect token delivered as query parameter
 					if (location != null && location.contains("auth-token=")) {
 						try {
-							java.net.URI uri = java.net.URI.create(location);
+							URI uri = URI.create(location);
 							String query = uri.getQuery();
 							if (query != null) {
 								for (String param : query.split("&")) {

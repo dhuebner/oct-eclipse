@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 
 import org.eclipse.core.resources.IProject;
 import org.eclipse.oct.editor.EditorManager;
@@ -21,9 +22,11 @@ import org.eclipse.oct.internal.rpc.ServiceProcess;
 import org.eclipse.oct.protocol.InitData;
 import org.eclipse.oct.protocol.Peer;
 import org.eclipse.oct.protocol.SessionData;
+import org.eclipse.oct.protocol.User;
 import org.eclipse.oct.protocol.Workspace;
 import org.eclipse.oct.util.EventEmitter;
 import org.eclipse.swt.widgets.Display;
+import org.eclipse.ui.IEditorPart;
 
 /**
  * Wraps a real {@link ServiceProcess} (spawning the shipped native
@@ -36,7 +39,7 @@ import org.eclipse.swt.widgets.Display;
  * like production {@code SessionService.sessionCreated}) backed by a temporary
  * {@link IProject}, so that inbound {@code fileSystem/*} RPCs from the guest
  * are answered by the production path-conversion code against real files on
- * disk, and a real {@link org.eclipse.ui.IEditorPart} opened on the host's
+ * disk, and a real {@link IEditorPart} opened on the host's
  * project exercises the production {@code DocumentSyncListener}/seed-sync code
  * path. For guest peers we deliberately skip constructing the
  * CollaborationInstance to avoid triggering the linked-folder / workbench code
@@ -87,8 +90,7 @@ public final class TestPeer implements AutoCloseable {
 		return role;
 	}
 
-	public void setJoinPolicy(java.util.function.Function<
-			org.eclipse.oct.protocol.User, Boolean> policy) {
+	public void setJoinPolicy(Function<User, Boolean> policy) {
 		octHandler.setJoinPolicy(policy);
 	}
 
@@ -165,7 +167,7 @@ public final class TestPeer implements AutoCloseable {
 	}
 
 	/** Every {@code awareness/updateDocument} received so far, in arrival order. */
-	public java.util.List<TestOCTMessageHandler.DocumentUpdateEvent> documentUpdates() {
+	public List<TestOCTMessageHandler.DocumentUpdateEvent> documentUpdates() {
 		return octHandler.documentUpdates();
 	}
 
@@ -181,7 +183,7 @@ public final class TestPeer implements AutoCloseable {
 		return fsHandler.firstWriteFile();
 	}
 
-	public java.util.List<TestFileSystemMessageHandler.WriteFileEvent> writeFiles() {
+	public List<TestFileSystemMessageHandler.WriteFileEvent> writeFiles() {
 		return fsHandler.writeFiles();
 	}
 

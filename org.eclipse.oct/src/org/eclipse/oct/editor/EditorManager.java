@@ -9,6 +9,7 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -673,11 +674,13 @@ public class EditorManager implements IPartListener2 {
 			// open ourselves, which defeats the point of a presence display and of
 			// following a peer into a file we haven't opened yet. followTo() opens
 			// the file itself when needed, so no local editor state is required here.
+			Set<String> reportingPeers = new HashSet<>();
 			if (selections != null) {
 				for (ClientTextSelection sel : selections) {
 					if (sel.peer == null) {
 						continue;
 					}
+					reportingPeers.add(sel.peer);
 					recordPeerDocument(sel.peer, octPath);
 					if (sel.peer.equals(followingPeerId)) {
 						followTo(eclipseFile(octPath), sel.start);
@@ -686,45 +689,83 @@ public class EditorManager implements IPartListener2 {
 			}
 
 			EditorState state = findEditorState(octPath);
-			if (state == null) {
-				// Nothing open locally for this path - no annotations to render.
-				return;
-			}
+			if (state != null) {
+				IDocument doc = state.document;
+				int docLen = doc.getLength();
 
-			IDocument doc = state.document;
-			int docLen = doc.getLength();
+				// Build new annotation map, removing old peer annotations
+				List<Annotation> toRemove = new ArrayList<>();
+				state.peerModel.getAnnotationIterator().forEachRemaining(toRemove::add);
 
-			// Build new annotation map, removing old peer annotations
-			List<Annotation> toRemove = new ArrayList<>();
-			state.peerModel.getAnnotationIterator().forEachRemaining(toRemove::add);
+				Map<Annotation, Position> toAdd = new HashMap<>();
+				if (selections != null) {
+					for (ClientTextSelection sel : selections) {
+						if (sel.peer == null) {
+							continue;
+						}
+						RGB color = peerColors.getColor(sel.peer);
+						String name = peerNameLookup.apply(sel.peer);
 
-			Map<Annotation, Position> toAdd = new HashMap<>();
-			if (selections != null) {
-				for (ClientTextSelection sel : selections) {
-					if (sel.peer == null) {
-						continue;
-					}
-					RGB color = peerColors.getColor(sel.peer);
-					String name = peerNameLookup.apply(sel.peer);
+						int caretOffset = Math.min(sel.start, docLen);
+						toAdd.put(new PeerAnnotation(PeerAnnotation.TYPE_CURSOR, sel.peer, name, color, true),
+								new Position(caretOffset, 0));
 
-					int caretOffset = Math.min(sel.start, docLen);
-					toAdd.put(new PeerAnnotation(PeerAnnotation.TYPE_CURSOR, sel.peer, name, color, true),
-							new Position(caretOffset, 0));
-
-					if (sel.end != null && sel.end != sel.start) {
-						int start = Math.min(Math.min(sel.start, sel.end), docLen);
-						int end = Math.min(Math.max(sel.start, sel.end), docLen);
-						if (end > start) {
-							toAdd.put(new PeerAnnotation(PeerAnnotation.TYPE_SELECTION, sel.peer, name, color, false),
-									new Position(start, end - start));
+						if (sel.end != null && sel.end != sel.start) {
+							int start = Math.min(Math.min(sel.start, sel.end), docLen);
+							int end = Math.min(Math.max(sel.start, sel.end), docLen);
+							if (end > start) {
+								toAdd.put(new PeerAnnotation(PeerAnnotation.TYPE_SELECTION, sel.peer, name, color, false),
+										new Position(start, end - start));
+							}
 						}
 					}
 				}
+
+				state.peerModel.replaceAnnotations(toRemove.toArray(new Annotation[0]), toAdd);
+				scheduleHideNameTags(state);
 			}
 
-			state.peerModel.replaceAnnotations(toRemove.toArray(new Annotation[0]), toAdd);
-			scheduleHideNameTags(state);
+			// A reporting peer's selections just replaced (or, if state was null,
+			// simply confirmed) its presence in octPath. No empty update is ever sent
+			// for a path a peer just left (see EditorManager class doc / the exec
+			// plan this closes) — so without this sweep, its annotations from a
+			// *previously* open file would linger there forever.
+			if (!reportingPeers.isEmpty()) {
+				for (Map.Entry<String, EditorState> entry : editorStates.entrySet()) {
+					if (OctPaths.referToSameDocument(entry.getKey(), octPath)) {
+						continue;
+					}
+					for (String peerId : reportingPeers) {
+						removePeerAnnotations(entry.getValue(), peerId);
+					}
+				}
+			}
 		});
+	}
+
+	/**
+	 * Removes every {@link PeerAnnotation} belonging to {@code peerId} from
+	 * {@code state}'s peer annotation model and repaints the widget. Used both
+	 * for a departed peer ({@link #forgetPeer}) and for a peer that switched to a
+	 * different file ({@link #updateTextSelection}) — neither case ever arrives
+	 * over the wire as an explicit empty update (see the class doc on why), so
+	 * cleanup has to be driven locally.
+	 */
+	private void removePeerAnnotations(EditorState state, String peerId) {
+		List<Annotation> toRemove = new ArrayList<>();
+		state.peerModel.getAnnotationIterator().forEachRemaining(annotation -> {
+			if (annotation instanceof PeerAnnotation peer && peerId.equals(peer.getPeerId())) {
+				toRemove.add(annotation);
+			}
+		});
+		if (toRemove.isEmpty()) {
+			return;
+		}
+		state.peerModel.replaceAnnotations(toRemove.toArray(new Annotation[0]), Map.of());
+		ISourceViewer viewer = getSourceViewer(state.editor);
+		if (viewer != null && viewer.getTextWidget() != null && !viewer.getTextWidget().isDisposed()) {
+			viewer.getTextWidget().redraw();
+		}
 	}
 
 	private void scheduleHideNameTags(EditorState state) {
@@ -884,10 +925,26 @@ public class EditorManager implements IPartListener2 {
 		return peerId == null ? null : peerDocumentPaths.get(peerId);
 	}
 
+	/**
+	 * A peer left the session. Clears its presence tracking, resets follow state
+	 * if it was the peer being followed, and sweeps its {@link PeerAnnotation}s
+	 * from every open editor — {@code peerLeft} never arrives with a
+	 * corresponding empty {@code awareness/updateTextSelection}, so nothing else
+	 * would ever remove its ghost cursor/selection.
+	 */
 	public void forgetPeer(String peerId) {
-		if (peerId != null) {
-			peerDocumentPaths.remove(peerId);
+		if (peerId == null) {
+			return;
 		}
+		peerDocumentPaths.remove(peerId);
+		if (peerId.equals(followingPeerId)) {
+			stopFollowing();
+		}
+		Display.getDefault().asyncExec(() -> {
+			for (EditorState state : editorStates.values()) {
+				removePeerAnnotations(state, peerId);
+			}
+		});
 	}
 
 	public String getFollowingPeerId() {
@@ -988,6 +1045,8 @@ public class EditorManager implements IPartListener2 {
 		disposed.set(true);
 		seededPaths.clear();
 		peerDocumentPaths.clear();
+		followingPeerId = null;
+		followGuestSelection = false;
 		Display.getDefault().asyncExec(() -> {
 			if (PlatformUI.isWorkbenchRunning()) {
 				try {

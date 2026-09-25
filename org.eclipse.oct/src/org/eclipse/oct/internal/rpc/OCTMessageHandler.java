@@ -25,6 +25,7 @@ import org.eclipse.oct.protocol.TextDocumentInsert;
 import org.eclipse.oct.protocol.User;
 import org.eclipse.oct.util.EventEmitter;
 import org.eclipse.swt.widgets.Display;
+import org.eclipse.swt.widgets.Shell;
 import org.eclipse.ui.PlatformUI;
 
 /**
@@ -81,7 +82,7 @@ public class OCTMessageHandler extends BaseMessageHandler {
 		return result;
 	}
 
-	private static org.eclipse.swt.widgets.Shell activeShellOrNull() {
+	private static Shell activeShellOrNull() {
 		try {
 			return PlatformUI.getWorkbench().getActiveWorkbenchWindow().getShell();
 		} catch (Exception e) {

@@ -16,12 +16,18 @@ Run from the repo root.
 ```sh
 mvn install -DskipTests               # one-time reactor install, ~25s fresh — needed before any single-module command below
 mvn clean verify                      # full build + native executable + all tests, ~50s
-mvn -pl org.eclipse.oct.tests -am -Dtycho.mode=maven integration-test -Dtest=<ClassName>   # single test class, ~9s once installed
+mvn -pl org.eclipse.oct.tests -am -Dtycho.mode=maven integration-test -Dtest=<ClassName>   # single test class, once installed
 ```
 
 - There is no separate lint/typecheck command — `mvn clean verify` (Tycho
   compiler + PDE manifest checks) is the full verification, and it currently
-  passes cleanly on a fresh checkout (verified 2026-09-25, 95/95 tests).
+  passes cleanly on a fresh checkout (verified 2026-09-25, 101/101 tests).
+- The single-test command's timing depends heavily on what the class spins up:
+  a pure unit-style class (e.g. `OctPathsTest`) runs in ~12s, but most
+  integration classes launch a real `oct-service-process` and/or the PDE UI
+  harness and take 30-55s (`PathConversionTest` ~30s, `HandshakeTest` ~45s,
+  `EditorAdoptionTest` ~52s — timed 2026-09-25) — plan for the latter, not the
+  former, when picking a timeout.
 - The single-test form runs the `integration-test` phase, not `test`: since
   Tycho 5.0 the `tycho-surefire-plugin:test` goal (it launches an OSGi runtime
   to run tests, so Tycho classifies it as an integration test) is bound to

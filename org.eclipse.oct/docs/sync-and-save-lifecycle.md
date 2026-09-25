@@ -138,6 +138,22 @@ there's remaining work here. -->
   `awareness/getDocumentContent` that this peer's own replica actually holds
   the seeded content (falling back to enabling it anyway after a 10s timeout,
   so a slow/unreachable server can't permanently freeze outgoing sync).
+- **(Fixed here)** `ServiceProcess` published its native `Process` handle through
+  a plain mutable field written by two threads: `close()` on an Eclipse `Job`
+  worker, and the `onExit()` callback that clears the field when the process
+  dies. Every use was a separate field read, so a process exiting mid-teardown
+  let `close()` pass its `!= null` guard and then throw
+  `NullPointerException: Cannot invoke "java.lang.Process.isAlive()"` — observed
+  from a failing "Joining OCT room..." job after the server rejected a join. The
+  same window sat between `pb.start()` and the lsp4j `Launcher` wiring, which
+  read `getInputStream()`/`getOutputStream()` off the field: a process exiting
+  before the launcher was wired would NPE there instead, and since an NPE is not
+  an `IOException` it would escape the surrounding catch and the constructor. The field is now `volatile` and
+  every user captures it into a local first. The `onExit` handler also stopped
+  throwing a `RuntimeException` into its own unobserved `CompletableFuture`,
+  which had skipped the field clear on the common non-zero-exit path. Same class
+  as the `CopyOnWriteArrayList` entry above: anything the JSON-RPC reader or
+  process-exit threads share with UI/`Job` threads needs explicit publication.
 - **(Fixed here)** A departed or file-switched peer left ghost cursors/selections
   behind. `CollaborationInstance.peerLeft` called `EditorManager.forgetPeer`,
   but that only ever cleared `peerDocumentPaths` — nothing touched the

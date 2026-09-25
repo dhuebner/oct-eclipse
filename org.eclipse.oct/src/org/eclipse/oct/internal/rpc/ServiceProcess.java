@@ -33,8 +33,8 @@ public class ServiceProcess implements AutoCloseable {
 	private final List<BaseMessageHandler> messageHandlers;
 	private final Supplier<String> savedAuthTokenSupplier;
 
-	private Process currentProcess;
-	private Launcher<BaseMessageHandler.BaseRemoteInterface> jsonRpc;
+	private volatile Process currentProcess;
+	private volatile Launcher<BaseMessageHandler.BaseRemoteInterface> jsonRpc;
 	private Path executablePath;
 
 	public ServiceProcess(String serverUrl, List<BaseMessageHandler> messageHandlers) {
@@ -62,10 +62,11 @@ public class ServiceProcess implements AutoCloseable {
 
 	@SuppressWarnings("unchecked")
 	public <T extends BaseMessageHandler.BaseRemoteInterface> T getOctService() {
-		if (jsonRpc == null) {
+		Launcher<BaseMessageHandler.BaseRemoteInterface> launcher = jsonRpc;
+		if (launcher == null) {
 			throw new IllegalStateException("ServiceProcess is not initialized");
 		}
-		return (T) jsonRpc.getRemoteProxy();
+		return (T) launcher.getRemoteProxy();
 	}
 
 	private void startProcess() {
@@ -85,19 +86,19 @@ public class ServiceProcess implements AutoCloseable {
 			ProcessBuilder pb = new ProcessBuilder(executablePath.toString(), "--server-address=" + serverUrl,
 					"--auth-token=" + tokenArg);
 			pb.redirectErrorStream(false);
-			currentProcess = pb.start();
+			Process started = pb.start();
+			currentProcess = started;
 
-			currentProcess.onExit().thenRun(() -> {
+			started.onExit().thenRun(() -> {
 				try {
-					byte[] err = currentProcess.getErrorStream().readAllBytes();
-					byte[] out = currentProcess.getInputStream().readAllBytes();
+					byte[] err = started.getErrorStream().readAllBytes();
+					byte[] out = started.getInputStream().readAllBytes();
 					if (out.length > 0) {
 						LOG.info("OCT service process logged:\n" + new String(out));
 					}
-					if (err.length > 0 || currentProcess.exitValue() != 0) {
-						var message = "OCT service process exited with code (" + currentProcess.exitValue() + ")";
-						LOG.log(Level.SEVERE, message + ":\n" + new String(err));
-						throw new RuntimeException(message);
+					if (err.length > 0 || started.exitValue() != 0) {
+						LOG.log(Level.SEVERE, "OCT service process exited with code (" + started.exitValue() + "):\n"
+								+ new String(err));
 					}
 				} catch (IOException ignored) {
 				}
@@ -116,8 +117,8 @@ public class ServiceProcess implements AutoCloseable {
 
 			Launcher.Builder<BaseMessageHandler.BaseRemoteInterface> builder = new Launcher.Builder<BaseMessageHandler.BaseRemoteInterface>()
 					.setLocalServices(localServices).setClassLoader(OCTService.class.getClassLoader())
-					.setRemoteInterfaces(typedInterfaces).setInput(currentProcess.getInputStream())
-					.setOutput(currentProcess.getOutputStream()).configureGson(BinaryDataAdapter::registerAll);
+					.setRemoteInterfaces(typedInterfaces).setInput(started.getInputStream())
+					.setOutput(started.getOutputStream()).configureGson(BinaryDataAdapter::registerAll);
 
 			jsonRpc = builder.create();
 			jsonRpc.startListening();
@@ -170,12 +171,13 @@ public class ServiceProcess implements AutoCloseable {
 
 	@Override
 	public void close() {
+		Process process = currentProcess;
 		try {
-			if (currentProcess != null) {
-				currentProcess.destroy();
-				currentProcess.waitFor(2, TimeUnit.SECONDS);
-				if (currentProcess.isAlive()) {
-					currentProcess.destroyForcibly();
+			if (process != null) {
+				process.destroy();
+				process.waitFor(2, TimeUnit.SECONDS);
+				if (process.isAlive()) {
+					process.destroyForcibly();
 				}
 				currentProcess = null;
 			}

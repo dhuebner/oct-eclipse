@@ -11,7 +11,7 @@ and `open-collaboration-service-process` reference implementations in
 |---|---|---|
 | Live keystroke in an open editor | `DocumentSyncListener.documentChanged` (guarded by `sendUpdates`, echo-safe) | `awareness/updateDocument` (incremental) |
 | Caret/selection change | `SelectionSyncListener.selectionChanged` | `awareness/updateTextSelection` |
-| Editor opened, first time only | `EditorManager.partOpened` → `registerEditor` returns `true` once per path (also checked against `seededPaths`) | `awareness/openDocument` (full content, exactly once), followed by `awareness/getDocumentContent` polling in `confirmSeedThenEnableUpdates` before `sendUpdates` is flipped on (see gap below — closes a real corruption race) |
+| Editor opened, first time only — **including editors already open when the session starts** (`EditorManager`'s constructor sweeps `getEditorReferences()` via `adoptOpenEditors`, since `partOpened` only fires for editors opened afterwards) | `EditorManager.partOpened` / `adoptOpenEditors` → `trackEditor` → `registerEditor` returns `true` once per path | `awareness/openDocument` (full content, exactly once per registration), followed by `awareness/getDocumentContent` polling in `confirmSeedThenEnableUpdates` before `sendUpdates` is flipped on (see gap below — closes a real corruption race) |
 | Disk change (host only) — save, create, delete, rename | `WorkspaceChangeListener.resourceChanged` (only for hosted projects) | `fileSystem/change` broadcast |
 | Guest saves a file | `OctFileStore.openOutputStream().close()` (fired by Eclipse's normal save lifecycle on the linked `oct://` resource) | `fileSystem/writeFile` request → host |
 
@@ -21,7 +21,7 @@ and `open-collaboration-service-process` reference implementations in
 |---|---|---|
 | `awareness/updateDocument` | `CollaborationInstance.updateDocument` → `EditorManager.updateDocument` | Applies `IDocument.replace()` with echo suppression — **only if the path has a registered `EditorState`**, i.e. is actually open somewhere locally. If not open, silently dropped (by design — there's no live buffer to mutate; the next open / `getDocumentContent` pulls the current Yjs content anyway). |
 | `awareness/updateTextSelection` | `EditorManager.updateTextSelection` | Renders peer cursor/selection annotations, plus per-peer follow-mode navigation if `followingPeerId` is set. |
-| `editorOpened` (host only) | `CollaborationInstance.editorOpened` → `EditorManager.guestOpenedEditor` | Seeds Yjs with real content (live doc if already open, else disk read) exactly once per path (`seededPaths` guard); only opens/activates the UI editor if "Follow guest selection" is on. |
+| `editorOpened` (host only) | `CollaborationInstance.editorOpened` → `EditorManager.guestOpenedEditor` | Host already has the file open: nothing to do — its registered editor seeded the path and holds the authoritative (possibly unsaved) buffer. Host does not: pushes the **on-disk** content via `awareness/openDocument`, exactly once per path (`seededPaths` guard), without opening an editor. Only opens/activates the UI editor if "Follow guest selection" is on. Upstream `editor.onOpen`'s `readOwnFile` is a second backstop, but it also reads disk, never a dirty host buffer. |
 | `fileSystem/change` (guest only — host ignores its own broadcast) | `CollaborationInstance.handleFileSystemChange` | Invalidates EFS caches. For `Update` on an open editor, `saveIfOpen` marks it clean and **skips** `refreshLocal` — a refresh would auto-reload the now-clean editor and `DocumentSyncListener` would echo the whole buffer as an insert (duplicated content). Closed files still refresh so the explorer stays current. |
 | `fileSystem/writeFile` (host) | `FileSystemMessageHandler.writeFile` → `EditorManager.saveIfOpen` | If host has it open: replaces content only if it actually differs (avoids a needless echo) and calls `editor.doSave()`. Otherwise falls straight through to `WorkspaceFileSystemService.writeFile` (direct disk write). |
 | `fileSystem/writeFile` (guest) | `FileSystemMessageHandler.writeFile` → `EditorManager.saveIfOpen` | Host already persisted the file. Guest applies content if needed, then `saveDocument(..., overwrite=true)` with `OctFileStore.suppressWrite` so the editor goes clean without echoing `writeFile` back or hitting Eclipse's "file changed on the file system" dialog. File not open: cache invalidate + refresh only. |
@@ -96,6 +96,32 @@ guest too, but that's a no-op since content already matches).
 below exists, why a given RPC type is shaped the way it is), not because
 there's remaining work here. -->
 
+- **(Fixed here)** Awareness was completely dead for any file the user already
+  had open when the session started. `EditorManager` only registered editors
+  via `IPartListener2.partOpened`, which never fires for an already-open tab
+  (and `partActivated` bails when there is no `EditorState` yet), so such a
+  file got no `DocumentSyncListener`, no `SelectionSyncListener`, no peer
+  annotation model and no `awareness/openDocument` seed for the whole session:
+  peer cursors never appeared, local typing was never broadcast, incoming
+  edits were dropped by `updateDocument`, and content only converged via a
+  save (which travels the unrelated `fileSystem/writeFile` path — hence the
+  "it only syncs when I press Ctrl+S" symptom). `EditorManager`'s constructor
+  now sweeps every window/page's `getEditorReferences()` in `adoptOpenEditors`,
+  matching VS Code's `workspace.textDocuments.forEach(registerTextDocument)`
+  and IntelliJ's replay of `FileEditorManager.allEditors`.
+- **(Fixed here)** `guestOpenedEditor` added a path to `seededPaths` without
+  ever calling `openDocument` (the seeding branch was dropped in `cddb528`),
+  and `partOpened` then treated that entry as "already pushed" and returned
+  before seeding — which also bypassed the ADR-0002 gate by calling
+  `enableSendUpdates` directly, exactly the regression that ADR's Consequences
+  section warns about. Because only `awareness/openDocument` reaches
+  `YjsNormalizedTextDocument.attachLocalDocument`, skipping it left the service
+  process computing every offset against the wrong base string (the disk text,
+  or `''`), so peer edits landed at wrong locations. `guestOpenedEditor` now
+  really seeds from disk when the host has no editor open, and `trackEditor`
+  always sends `openDocument`. Re-sending is cheap rather than a full
+  delete+insert: upstream's `registerYjsObject` returns early when the shared
+  text is already non-empty.
 - **(Fixed here — see [ADR-0002](../../docs/adr/0002-seed-confirmation-gate-with-timeout-fallback.md)
   for the decision and its trade-offs)** `awareness/openDocument` is fire-and-forget, and a non-host
   peer's own `text` argument is discarded upstream (`CollaborationInstance

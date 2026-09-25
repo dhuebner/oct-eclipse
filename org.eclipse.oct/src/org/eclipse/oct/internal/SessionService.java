@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -124,7 +125,7 @@ public class SessionService {
 					}
 				} catch (Exception e) {
 					LOG.log(Level.SEVERE, "Error creating room", e);
-					final String errMsg = (e.getMessage() == null) ? "" : ("Error: " + e.getMessage());
+					final String errMsg = describeConnectionError(e, serverUrl);
 					Display.getDefault()
 							.asyncExec(() -> MessageDialog.openError(
 									PlatformUI.getWorkbench().getActiveWorkbenchWindow().getShell(), "OCT Error",
@@ -179,10 +180,11 @@ public class SessionService {
 					}
 				} catch (Exception e) {
 					LOG.log(Level.SEVERE, "Error joining room", e);
+					final String errMsg = describeConnectionError(e, serverUrl.get());
 					Display.getDefault()
 							.asyncExec(() -> MessageDialog.openError(
 									PlatformUI.getWorkbench().getActiveWorkbenchWindow().getShell(), "OCT Error",
-									"Failed to join room: " + e.getMessage()));
+									"Failed to join room. " + errMsg));
 				}
 				return Status.OK_STATUS;
 			}
@@ -267,6 +269,31 @@ public class SessionService {
 
 		instances.put(project, instance);
 		onSessionCreated.fire(instance);
+	}
+
+	/**
+	 * Turns a room-creation/join failure into a message a user can act on.
+	 * The OCT server reports transport failures (unreachable host, DNS
+	 * failure, connection refused) as a generic Node.js {@code TypeError:
+	 * fetch failed} nested inside a {@link
+	 * org.eclipse.lsp4j.jsonrpc.ResponseErrorException} message, so we detect
+	 * those patterns and name the server URL instead of surfacing the raw
+	 * exception text.
+	 */
+	public static String describeConnectionError(Throwable e, String serverUrl) {
+		if (e instanceof TimeoutException) {
+			return "Server " + serverUrl + " did not respond in time.";
+		}
+		Throwable cause = e;
+		while (cause != null) {
+			String msg = cause.getMessage();
+			if (msg != null && (msg.contains("fetch failed") || msg.contains("ECONNREFUSED")
+					|| msg.contains("ENOTFOUND") || msg.contains("EAI_AGAIN"))) {
+				return "Server " + serverUrl + " is not reachable.";
+			}
+			cause = (cause.getCause() == cause) ? null : cause.getCause();
+		}
+		return e.getMessage() == null ? "" : ("Error: " + e.getMessage());
 	}
 
 	private ServiceProcess createServiceProcess(String serverUrl) {

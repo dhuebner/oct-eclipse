@@ -21,7 +21,7 @@ mvn -pl org.eclipse.oct.tests -am -Dtycho.mode=maven integration-test -Dtest=<Cl
 
 - There is no separate lint/typecheck command — `mvn clean verify` (Tycho
   compiler + PDE manifest checks) is the full verification, and it currently
-  passes cleanly on a fresh checkout (verified 2026-09-11, 87/87 tests).
+  passes cleanly on a fresh checkout (verified 2026-09-25, 95/95 tests).
 - The single-test form runs the `integration-test` phase, not `test`: since
   Tycho 5.0 the `tycho-surefire-plugin:test` goal (it launches an OSGi runtime
   to run tests, so Tycho classifies it as an integration test) is bound to

@@ -14,6 +14,16 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      debug_logging:
+        description: >-
+          Raise the test JVM's java.util.logging level to FINE (e.g. to see
+          the Node OCT server's own console output, normally suppressed —
+          see OctTestServer). For debugging an existing push/PR run via
+          "Re-run jobs" instead — which has no input dialog — set the repo/
+          environment variable OCT_TESTS_DEBUG_LOGGING to "true" instead.
+        type: boolean
+        default: false
 
 # The suite is dominated by serial Eclipse test runtime (~3 minutes), so a
 # newer push to the same branch should cancel the run it just made obsolete.
@@ -74,10 +84,28 @@ jobs:
       # of here.
       - name: Build and run the integration tests
         working-directory: oct-eclipse
+        env:
+          # Two independent ways to opt into FINE, since "Re-run jobs" on an
+          # existing push/PR run has no input dialog and replays the original
+          # event payload unchanged:
+          #  - debug_logging: a fresh "Run workflow" dispatch with the
+          #    checkbox ticked.
+          #  - vars.OCT_TESTS_DEBUG_LOGGING: flip this repo/environment
+          #    variable (Settings → Secrets and variables → Actions →
+          #    Variables) to "true" first, then "Re-run jobs" on the very run
+          #    that needs debugging — vars are re-read on every run attempt,
+          #    unlike the frozen event payload.
+          # github.event.inputs (rather than the newer top-level `inputs`
+          # context) is the form that's safe to reference on triggers other
+          # than workflow_dispatch too — it's just absent there, evaluating to
+          # null. Both it and vars.* always arrive as strings, hence the
+          # explicit 'true' comparisons.
+          OCT_TESTS_LOG_LEVEL: ${{ (github.event.inputs.debug_logging == 'true' || vars.OCT_TESTS_DEBUG_LOGGING == 'true') && 'FINE' || 'INFO' }}
         run: >
           xvfb-run -a
           mvn --batch-mode --no-transfer-progress clean verify
           -Doct.project.path=${{ github.workspace }}/open-collaboration-tools
+          -Doct.tests.logLevel=$OCT_TESTS_LOG_LEVEL
 
       - name: Upload p2 update site
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

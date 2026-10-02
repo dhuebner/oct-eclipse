@@ -50,6 +50,7 @@ import org.eclipse.oct.util.UIThread;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Shell;
 import org.eclipse.ui.PlatformUI;
+import org.eclipse.ui.progress.IProgressConstants;
 
 /**
  * Central session lifecycle manager.
@@ -163,6 +164,7 @@ public class SessionService {
 					final String errMsg = describeConnectionError(e, serverUrl);
 					UIThread.asyncExec(
 							() -> MessageDialog.openError(activeShellOrNull(), "OCT Error", "Failed to create room. " + errMsg));
+					return Status.error("Failed to create room. " + errMsg, e);
 				} finally {
 					unsubscribeAbort.run();
 					pendingRoomCreations.remove(project);
@@ -177,6 +179,9 @@ public class SessionService {
 			}
 		};
 		job.setUser(true);
+		// The catch block reports failures itself; without this the platform's
+		// job-error handling opens a second error dialog on top of that one.
+		job.setProperty(IProgressConstants.NO_IMMEDIATE_ERROR_PROMPT_PROPERTY, Boolean.TRUE);
 		job.schedule();
 	}
 
@@ -238,6 +243,7 @@ public class SessionService {
 					final String errMsg = describeConnectionError(e, serverUrl.get());
 					UIThread.asyncExec(
 							() -> MessageDialog.openError(activeShellOrNull(), "OCT Error", "Failed to join room. " + errMsg));
+					return Status.error("Failed to join room. " + errMsg, e);
 				} finally {
 					unsubscribeAbort.run();
 					pendingRoomJoins.remove(joinKey);
@@ -249,6 +255,9 @@ public class SessionService {
 			}
 		};
 		job.setUser(true);
+		// The catch block reports failures itself; without this the platform's
+		// job-error handling opens a second error dialog on top of that one.
+		job.setProperty(IProgressConstants.NO_IMMEDIATE_ERROR_PROMPT_PROPERTY, Boolean.TRUE);
 		job.schedule();
 	}
 

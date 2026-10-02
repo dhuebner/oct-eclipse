@@ -133,6 +133,19 @@ The p2 update site is produced at `org.eclipse.oct.repository/target/*.zip`
 — this is the same artifact CI uploads and that the installation instructions
 above point at.
 
+#### Running this from Eclipse (`oct-eclipse.launch`)
+
+[`.launch/oct-eclipse.launch`](.launch/oct-eclipse.launch) runs the same
+`mvn clean verify` via m2e's **embedded** Maven runtime, inside Eclipse's own
+JVM. Like the `OCT Tests.launch` case below, that JVM does not inherit the
+`PATH` your shell builds up from `.zshrc`/`.zprofile` (nvm, volta, fnm,
+Homebrew, ...) when Eclipse itself was started from the Dock/Finder/Spotlight
+— so the antrun step that shells out to `npm install` /
+`npm run create:executable` can fail with `npm` not found, even though `npm`
+works fine from a terminal. Make sure `npm` is resolvable from wherever
+Eclipse's process inherited its `PATH`, or — more reliably — just run
+`mvn clean verify` from a terminal instead of using this launch config.
+
 One-time setup before running single-module commands below:
 
 ```bash

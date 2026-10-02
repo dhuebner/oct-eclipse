@@ -50,6 +50,15 @@ mvn -pl org.eclipse.oct.tests -am -Dtycho.mode=maven integration-test -Dtest=<Cl
   (`org.eclipse.tycho.surefire.junit5` only imports `org.junit.jupiter.api`
   `[5,6)`, `.junit6` imports `[6,7)`), so a `providerHint` mismatched to the
   target's actual Jupiter major version reproduces the same error.
+- CI runs the very same `mvn clean verify` — see
+  [.github/workflows/build.yml](.github/workflows/build.yml), `ubuntu-latest`,
+  on every push to `main` and every pull request. It checks this repo and
+  `open-collaboration-tools` out as siblings and tracks that project's `main`,
+  so an upstream commit can turn a PR red with nothing changed here; pin the
+  `ref:` in the workflow if that ever gets in the way. The suite needs a
+  display there (`useUIHarness=true`), hence `xvfb-run`. The p2 update site is
+  kept as a build artifact; test reports and the workbench `.log` are uploaded
+  on failure.
 
 ## Why and where
 

@@ -17,9 +17,7 @@ on:
     inputs:
       debug_logging:
         description: >-
-          Raise the test JVM's java.util.logging level to FINE (e.g. to see
-          the Node OCT server's own console output, normally suppressed —
-          see OctTestServer). For debugging an existing push/PR run via
+          With DEBUG Logging. For debugging an existing push/PR run via
           "Re-run jobs" instead — which has no input dialog — set the repo/
           environment variable OCT_TESTS_DEBUG_LOGGING to "true" instead.
         type: boolean
@@ -32,7 +30,72 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
+  # The oct-service-process executable is a Node single-executable bundle, so it
+  # can only be produced on the platform it targets — hence one job per platform
+  # rather than one build that emits all three. `build` below collects them, so
+  # that a single Tycho run publishes an update site serving every platform
+  # instead of only the one CI happens to run on.
+  binaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            binary: oct-service-process-linux-x64
+          - runner: windows-latest
+            binary: oct-service-process-win32.exe
+          - runner: macos-latest
+            binary: oct-service-process-darwin-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out open-collaboration-tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: eclipse-oct/open-collaboration-tools
+          ref: main
+          path: open-collaboration-tools
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: open-collaboration-tools/package-lock.json
+
+      # Same sequence org.eclipse.oct/pom.xml runs for a local build: the root
+      # build has to come first, create:executable only rebuilds its own
+      # workspace and links against the others' output.
+      - name: Build the service-process executable
+        working-directory: open-collaboration-tools
+        run: |
+          npm install
+          npm run build
+          npm run create:executable --workspace=open-collaboration-service-process
+
+      # The platform-suffixed name is what the binary fragments stage by and what
+      # ServiceProcess looks up at runtime; create:executable only ever emits the
+      # unsuffixed one.
+      - name: Rename to the platform-suffixed name
+        shell: bash
+        working-directory: open-collaboration-tools/packages/open-collaboration-service-process/bin
+        run: |
+          if [ -f oct-service-process.exe ]; then
+            mv oct-service-process.exe "${{ matrix.binary }}"
+          else
+            mv oct-service-process "${{ matrix.binary }}"
+          fi
+
+      - name: Upload the executable
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: service-process-${{ matrix.binary }}
+          path: open-collaboration-tools/packages/open-collaboration-service-process/bin/${{ matrix.binary }}
+          if-no-files-found: error
+
+  build:
+    needs: binaries
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -44,16 +107,26 @@ jobs:
         with:
           path: oct-eclipse
 
-      # A hard build dependency, not an optional extra: the native
-      # oct-service-process executable staged into oct-bin/ and the OCT server
-      # the integration tests spin up are both built from this checkout (see
-      # the antrun executions in org.eclipse.oct/pom.xml).
+      # A hard build dependency, not an optional extra: the OCT server the
+      # integration tests spin up is built from this checkout (see the antrun
+      # execution in org.eclipse.oct/pom.xml). The service-process executables
+      # come from the `binaries` jobs instead.
       - name: Check out open-collaboration-tools
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: eclipse-oct/open-collaboration-tools
           ref: main
           path: open-collaboration-tools
+
+      # Flattened into one directory, which is what oct.binaries.dir expects:
+      # each binary fragment picks its own file out of it by name, and a file
+      # that is not there simply means that fragment packages empty.
+      - name: Download the service-process executables
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: service-process-*
+          merge-multiple: true
+          path: oct-binaries
 
       # The maven cache also covers Tycho's p2 cache (~/.m2/repository/.cache/
       # tycho), which is what keeps the Eclipse 2026-03 target platform from
@@ -105,6 +178,7 @@ jobs:
           xvfb-run -a
           mvn --batch-mode --no-transfer-progress clean verify
           -Doct.project.path=${{ github.workspace }}/open-collaboration-tools
+          -Doct.binaries.dir=${{ github.workspace }}/oct-binaries
           -Doct.tests.logLevel=$OCT_TESTS_LOG_LEVEL
 
       - name: Upload p2 update site

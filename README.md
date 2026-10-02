@@ -24,6 +24,10 @@ yet, so for now it's installed from a CI build artifact:
 4. Select **Open Collaboration Tools** from the category list, finish the
    wizard, and restart Eclipse when prompted.
 
+Supported platforms are **Linux x86_64, Windows x86_64 and macOS arm64**. The
+plugin drives a native helper process that ships per platform, and p2 installs
+only the one matching your machine. macOS on Intel is not currently built.
+
 > GitHub Actions artifacts expire after a while (currently 90 days by
 > default), so if the latest run's artifact is gone, just re-run the workflow
 > via `workflow_dispatch` or wait for the next push to `main`.
@@ -62,11 +66,13 @@ oct-eclipse/
           rpc/        ServiceProcess, adapters, OCTService, FileSystemService, handlers
           fs/         OctFileSystem (EFS guest), WorkspaceFileSystemService (host)
           auth/       AuthenticationService + secure storage
-    lib/              Third-party jars (lsp4j, jackson, msgpack) — pre-downloaded, don't hand-edit
-    oct-bin/           oct-service-process executables (per platform) — staged by the build, don't hand-edit
+    lib/              msgpack jars — downloaded by the build, don't hand-edit
     META-INF/MANIFEST.MF
     plugin.xml
     .launch/          Eclipse launch configs for manual testing (see below)
+  org.eclipse.oct.binary.linux.x86_64/     One fragment per platform, each carrying only
+  org.eclipse.oct.binary.win32.x86_64/     that platform's oct-bin/oct-service-process-*
+  org.eclipse.oct.binary.macosx.aarch64/   (staged by the build, don't hand-edit)
   org.eclipse.oct.tests/            Integration test fragment (Tycho eclipse-test-plugin)
   org.eclipse.oct.feature/          Eclipse feature
   org.eclipse.oct.repository/       p2 update site (category.xml)
@@ -87,16 +93,24 @@ and the invariants behind the package layout.
    (**Preferences → Plug-in Development → Target Platform**).
 4. The project should build cleanly.
 
-The `lib/` jars are pre-downloaded. The `oct-bin/` executable is normally
-staged by `mvn clean verify` (see below) from the sibling
-`open-collaboration-tools` checkout — build headlessly at least once before
-running from PDE so that executable exists, or produce it by hand:
+Also import the `org.eclipse.oct.binary.*` project for your platform — that's
+where the native `oct-service-process` lives, and without it in the workspace a
+session fails to start.
+
+`lib/` and the fragment's `oct-bin/` are both filled by `mvn clean verify` (see
+below) from the sibling `open-collaboration-tools` checkout, so build headlessly
+at least once before running from PDE. A local build only ever produces the
+binary for the machine it runs on; the other two fragments stay empty, which is
+expected. To produce it by hand instead:
 
 ```bash
 cd /path/to/open-collaboration-tools
-npm install
-npm run create:executable   # produces binaries under packages/open-collaboration-service-process/bin/
-cp packages/open-collaboration-service-process/bin/oct-service-process* /path/to/oct-eclipse/org.eclipse.oct/oct-bin/
+npm install && npm run build
+npm run create:executable --workspace=open-collaboration-service-process
+# then rename it to the platform-suffixed name ServiceProcess looks for and
+# drop it into the matching fragment, e.g. on macOS arm64:
+mv packages/open-collaboration-service-process/bin/oct-service-process \
+   /path/to/oct-eclipse/org.eclipse.oct.binary.macosx.aarch64/oct-bin/oct-service-process-darwin-arm64
 ```
 
 #### Trying out a live session (`.launch` configs)
@@ -124,10 +138,23 @@ mvn clean verify
 mvn clean verify -Doct.project.path=/absolute/path/to/open-collaboration-tools
 ```
 
-The build runs `npm install` and `npm run create:executable` inside the
-referenced open-collaboration-tools checkout, then stages the produced binary
-into `org.eclipse.oct/oct-bin/`. **This means the build hard-fails if Node.js
-20+ is not on `PATH` or the sibling checkout is missing.**
+The build runs `npm install`, `npm run build` and `npm run create:executable`
+inside the referenced open-collaboration-tools checkout, then stages the
+produced binary into the binary fragment for this platform. **This means the
+build hard-fails if Node.js 20+ is not on `PATH` or the sibling checkout is
+missing.**
+
+A local build is therefore single-platform. To assemble an update site that
+serves all three, hand Tycho a directory of pre-built, platform-suffixed
+binaries instead — which is exactly what CI's per-platform matrix does:
+
+```bash
+mvn clean verify -Doct.binaries.dir=/absolute/path/to/binaries
+```
+
+With that set, the npm `create:executable` step is skipped and each fragment
+picks its own binary out of that directory by name
+(`oct-service-process-linux-x64`, `-win32.exe`, `-darwin-arm64`).
 
 The p2 update site is produced at `org.eclipse.oct.repository/target/*.zip`
 — this is the same artifact CI uploads and that the installation instructions

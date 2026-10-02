@@ -98,6 +98,24 @@ guest too, but that's a no-op since content already matches).
 below exists, why a given RPC type is shaped the way it is), not because
 there's remaining work here. -->
 
+- **(Fixed here)** A service process that died on its own left no trace, and
+  the symptom named nothing useful. `ServiceProcess`'s `onExit` handler only
+  logged when it could read stderr — inside a `catch (IOException ignored)`,
+  which is exactly what a stream already drained by the process reaper throws —
+  so an executable that failed to run produced complete silence. The first
+  outgoing RPC then surfaced it as `java.io.IOException: Stream closed` thrown
+  from `ProcessBuilder$NullOutputStream`, which is the JDK swapping a dead
+  process's stdin pipe, several layers below anything naming the process. The
+  handler now always logs the exit code (suppressed only for a `close()` we
+  initiated, which would otherwise report every normal session teardown as a
+  failure) and appends stderr when it can still be read. The trigger was a CI
+  artifact carrying the service process for the wrong platform: the build
+  staged a single unsuffixed binary and `extractExecutable` fell back to it on
+  every platform, so a Linux build installed on macOS started a binary that
+  died instantly. The binary now ships per platform in
+  `org.eclipse.oct.binary.*` fragments and is looked up by platform suffix
+  only, with no fallback.
+
 - **(Fixed here)** Awareness was completely dead for any file the user already
   had open when the session started. `EditorManager` only registered editors
   via `IPartListener2.partOpened`, which never fires for an already-open tab

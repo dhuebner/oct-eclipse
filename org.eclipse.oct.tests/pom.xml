@@ -23,6 +23,31 @@
     <build>
         <plugins>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>stage-binary-for-test-runtime</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <copy todir="${project.basedir}/oct-bin" failonerror="false">
+                                    <fileset dir="${oct.binaries.dir}" includes="${oct.local.binary.name}"
+                                             erroronmissingdir="false"/>
+                                </copy>
+                                <chmod file="${project.basedir}/oct-bin/${oct.local.binary.name}" perm="ugo+rx"
+                                       osfamily="unix" failonerror="false"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
                 <groupId>org.eclipse.tycho</groupId>
                 <artifactId>tycho-surefire-plugin</artifactId>
                 <version>${tycho.version}</version>

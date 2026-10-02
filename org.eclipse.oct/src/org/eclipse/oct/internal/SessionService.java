@@ -46,6 +46,7 @@ import org.eclipse.oct.protocol.SessionData;
 import org.eclipse.oct.protocol.Workspace;
 import org.eclipse.oct.ui.SessionCreatedDialog;
 import org.eclipse.oct.util.EventEmitter;
+import org.eclipse.oct.util.UIThread;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Shell;
 import org.eclipse.ui.PlatformUI;
@@ -154,13 +155,13 @@ public class SessionService {
 					}
 					sessionCreated(sessionData, serverUrl, project, monitor, true);
 					sessionEstablished = true;
-					Display.getDefault().asyncExec(() -> {
+					UIThread.asyncExec(() -> {
 						new SessionCreatedDialog(activeShellOrNull(), sessionData.roomId, serverUrl).open();
 					});
 				} catch (Exception e) {
 					LOG.log(Level.SEVERE, "Error creating room", e);
 					final String errMsg = describeConnectionError(e, serverUrl);
-					Display.getDefault().asyncExec(
+					UIThread.asyncExec(
 							() -> MessageDialog.openError(activeShellOrNull(), "OCT Error", "Failed to create room. " + errMsg));
 				} finally {
 					unsubscribeAbort.run();
@@ -235,7 +236,7 @@ public class SessionService {
 				} catch (Exception e) {
 					LOG.log(Level.SEVERE, "Error joining room", e);
 					final String errMsg = describeConnectionError(e, serverUrl.get());
-					Display.getDefault().asyncExec(
+					UIThread.asyncExec(
 							() -> MessageDialog.openError(activeShellOrNull(), "OCT Error", "Failed to join room. " + errMsg));
 				} finally {
 					unsubscribeAbort.run();
@@ -370,7 +371,8 @@ public class SessionService {
 		try {
 			return PlatformUI.getWorkbench().getActiveWorkbenchWindow().getShell();
 		} catch (Exception e) {
-			return Display.getDefault().getActiveShell();
+			Display display = UIThread.display();
+			return display != null ? display.getActiveShell() : null;
 		}
 	}
 

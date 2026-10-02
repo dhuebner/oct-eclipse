@@ -19,6 +19,7 @@ import org.eclipse.oct.prefs.OCTSettings;
 import org.eclipse.oct.protocol.AuthMetadata;
 import org.eclipse.oct.protocol.AuthProvider;
 import org.eclipse.oct.util.EventEmitter;
+import org.eclipse.oct.util.UIThread;
 import org.eclipse.swt.program.Program;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Shell;
@@ -64,7 +65,7 @@ public class AuthenticationService {
 	 * dispatches to the appropriate flow (form, web, or browser fallback).
 	 */
 	public void authenticate(String serverUrl, String token, AuthMetadata metadata) {
-		Display.getDefault().asyncExec(() -> {
+		UIThread.asyncExec(() -> {
 			Shell shell = activeShell();
 
 			// No metadata or no providers → open login-page URL
@@ -187,7 +188,7 @@ public class AuthenticationService {
 	 */
 	public void onAuthenticated(String authToken, String serverUrl) {
 		// Close embedded browser dialog if still open
-		Display.getDefault().asyncExec(() -> {
+		UIThread.asyncExec(() -> {
 			if (currentBrowserDialog != null) {
 				currentBrowserDialog.close();
 				currentBrowserDialog = null;
@@ -240,7 +241,8 @@ public class AuthenticationService {
 		try {
 			return PlatformUI.getWorkbench().getActiveWorkbenchWindow().getShell();
 		} catch (Exception e) {
-			return Display.getDefault().getActiveShell();
+			Display display = UIThread.display();
+			return display != null ? display.getActiveShell() : null;
 		}
 	}
 }
